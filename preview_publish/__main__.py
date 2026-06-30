@@ -4,11 +4,14 @@ import argparse
 import sys
 from pathlib import Path
 
+from .archive import archive_app, extract_app_archive
 from .build import build
 from .config import load_manifest
 from .errors import PublisherError
 from .layout import Layout
 from .package import create_dmg, package, write_checksums
+from .release import publish_nightly
+from .signing import check_credentials, cleanup_temporary_keychains, finalize
 from .source import checkout
 
 
@@ -29,6 +32,24 @@ def _parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("package", help="create and deploy Bitcoin-QML.app")
     subparsers.add_parser("dmg", help="create an unsigned preview DMG")
+    subparsers.add_parser(
+        "credentials", help="validate Developer ID and Apple notary credentials"
+    )
+    subparsers.add_parser(
+        "finalize", help="sign, notarize, staple, and checksum the preview DMG"
+    )
+    subparsers.add_parser("release", help="publish the finalized nightly release")
+    subparsers.add_parser("cleanup", help="remove temporary Apple keychains")
+
+    archive_parser = subparsers.add_parser(
+        "archive", help="archive the unsigned app for isolated signing"
+    )
+    archive_parser.add_argument("--output", type=Path, required=True)
+
+    extract_parser = subparsers.add_parser(
+        "extract", help="safely extract and validate the unsigned app"
+    )
+    extract_parser.add_argument("--archive", type=Path, required=True)
 
     all_parser = subparsers.add_parser("all", help="run the unsigned pipeline")
     all_parser.add_argument("--clean", action="store_true")
@@ -48,14 +69,26 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "package":
             package(layout, manifest)
         elif args.command == "dmg":
-            create_dmg(layout, manifest)
-            write_checksums(layout)
+            dmg = create_dmg(layout, manifest)
+            write_checksums(layout, (dmg,))
+        elif args.command == "credentials":
+            check_credentials()
+        elif args.command == "finalize":
+            finalize(layout, manifest)
+        elif args.command == "release":
+            publish_nightly(layout, manifest)
+        elif args.command == "cleanup":
+            cleanup_temporary_keychains(layout.work)
+        elif args.command == "archive":
+            archive_app(layout, manifest, args.output)
+        elif args.command == "extract":
+            extract_app_archive(args.archive, layout, manifest)
         elif args.command == "all":
             checkout(layout, manifest, clean=args.clean)
             build(layout, manifest, jobs=args.jobs)
             package(layout, manifest)
-            create_dmg(layout, manifest)
-            write_checksums(layout)
+            dmg = create_dmg(layout, manifest)
+            write_checksums(layout, (dmg,))
         return 0
     except PublisherError as error:
         print(f"error: {error}", file=sys.stderr)

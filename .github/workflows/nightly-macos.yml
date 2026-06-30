@@ -1,0 +1,138 @@
+name: Nightly macOS Preview
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-macos-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: >-
+      (github.event_name == 'schedule' && vars.MACOS_NIGHTLY_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Configure build paths
+        run: |
+          echo "WORK_DIR=$RUNNER_TEMP/gui-qml-preview-build" >> "$GITHUB_ENV"
+          echo "PYTHONPYCACHEPREFIX=$RUNNER_TEMP/python-cache" >> "$GITHUB_ENV"
+
+      - name: Test publisher
+        run: python -m unittest discover -v
+
+      - name: Install build dependencies
+        run: |
+          brew install bison cmake make ninja pkgconf python
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch and patch reviewed source
+        run: python -m preview_publish --work-dir "$WORK_DIR" checkout --clean
+
+      - name: Restore depends cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/sources
+            ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/built
+          key: ${{ runner.os }}-${{ runner.arch }}-gui-qml-depends-${{ hashFiles('config/release.toml', 'patches/*.patch') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-gui-qml-depends-
+
+      - name: Build with depends
+        run: python -m preview_publish --work-dir "$WORK_DIR" build
+
+      - name: Package unsigned app
+        run: python -m preview_publish --work-dir "$WORK_DIR" package
+
+      - name: Archive unsigned app
+        run: |
+          mkdir -p "$RUNNER_TEMP/gui-qml-unsigned"
+          python -m preview_publish --work-dir "$WORK_DIR" archive \
+            --output "$RUNNER_TEMP/gui-qml-unsigned/unsigned-app.tar.gz"
+
+      - name: Upload unsigned app for isolated signing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gui-qml-unsigned-app
+          path: ${{ runner.temp }}/gui-qml-unsigned/unsigned-app.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  sign-and-publish:
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 180
+    environment: macos-release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Configure signing paths
+        run: |
+          echo "WORK_DIR=$RUNNER_TEMP/gui-qml-preview-signing" >> "$GITHUB_ENV"
+          echo "PYTHONPYCACHEPREFIX=$RUNNER_TEMP/python-cache" >> "$GITHUB_ENV"
+
+      - name: Download unsigned app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gui-qml-unsigned-app
+          path: ${{ runner.temp }}/gui-qml-unsigned
+
+      - name: Extract unsigned app
+        run: >-
+          python -m preview_publish --work-dir "$WORK_DIR" extract
+          --archive "$RUNNER_TEMP/gui-qml-unsigned/unsigned-app.tar.gz"
+
+      - name: Sign, notarize, and staple DMG
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: python -m preview_publish --work-dir "$WORK_DIR" finalize
+
+      - name: Publish nightly release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m preview_publish --work-dir "$WORK_DIR" release
+
+      - name: Preserve finalized artifacts and notary logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gui-qml-finalized-artifacts
+          path: ${{ runner.temp }}/gui-qml-preview-signing/artifacts
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove temporary Apple keychains
+        if: always()
+        run: python -m preview_publish --work-dir "$WORK_DIR" cleanup

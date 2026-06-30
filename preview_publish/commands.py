@@ -30,6 +30,7 @@ def run(
     env: Mapping[str, str] | None = None,
     capture: bool = False,
     redacted: Iterable[int] = (),
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     command = [os.fspath(value) for value in args]
     print(f"+ {_display_command(command, redacted)}", flush=True)
@@ -38,7 +39,7 @@ def run(
             command,
             cwd=cwd,
             env=None if env is None else {**os.environ, **env},
-            check=True,
+            check=check,
             text=True,
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE if capture else None,

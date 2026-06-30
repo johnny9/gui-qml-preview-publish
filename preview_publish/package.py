@@ -90,6 +90,46 @@ def validate_bundle(app: Path, manifest: Manifest) -> None:
         raise PublisherError("macdeployqtplus did not create qt.conf")
 
 
+def validate_unsigned_bundle_inventory(app: Path, manifest: Manifest) -> None:
+    expected_directories = {
+        Path("Contents"),
+        Path("Contents/MacOS"),
+        Path("Contents/Resources"),
+    }
+    expected_files = {
+        Path("Contents/Info.plist"),
+        Path("Contents/PkgInfo"),
+        Path("Contents/MacOS") / manifest.application.executable,
+        Path("Contents/Resources/bitcoin.icns"),
+        Path("Contents/Resources/qt.conf"),
+    }
+    try:
+        app_mode = app.lstat().st_mode
+        actual = {path.relative_to(app) for path in app.rglob("*")}
+    except OSError as error:
+        raise PublisherError(f"Cannot inspect unsigned app bundle: {error}") from error
+    if not stat.S_ISDIR(app_mode):
+        raise PublisherError(f"Unsigned app bundle is not a real directory: {app}")
+
+    expected = expected_directories | expected_files
+    if actual != expected:
+        missing = sorted(str(path) for path in expected - actual)
+        unexpected = sorted(str(path) for path in actual - expected)
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if unexpected:
+            details.append("unexpected: " + ", ".join(unexpected))
+        raise PublisherError("Unexpected unsigned app inventory (" + "; ".join(details) + ")")
+
+    for relative in expected_directories:
+        if not stat.S_ISDIR((app / relative).lstat().st_mode):
+            raise PublisherError(f"Unsigned app directory has an unsafe type: {relative}")
+    for relative in expected_files:
+        if not stat.S_ISREG((app / relative).lstat().st_mode):
+            raise PublisherError(f"Unsigned app file has an unsafe type: {relative}")
+
+
 def package(layout: Layout, manifest: Manifest) -> Path:
     staged = assemble_bundle(layout, manifest)
     vendor = (
@@ -119,15 +159,26 @@ def package(layout: Layout, manifest: Manifest) -> Path:
     return deployed
 
 
-def write_checksums(layout: Layout) -> Path:
-    artifacts = sorted(path for path in layout.artifacts.iterdir() if path.is_file() and path.name != "SHA256SUMS")
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_checksums(layout: Layout, artifacts: tuple[Path, ...] | None = None) -> Path:
+    if artifacts is None:
+        artifacts = tuple(
+            sorted(
+                path
+                for path in layout.artifacts.iterdir()
+                if path.is_file() and path.name != "SHA256SUMS"
+            )
+        )
     lines = []
     for path in artifacts:
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        lines.append(f"{digest.hexdigest()}  {path.name}")
+        lines.append(f"{_sha256_file(path)}  {path.name}")
     checksum_file = layout.artifacts / "SHA256SUMS"
     checksum_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return checksum_file

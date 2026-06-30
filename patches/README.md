@@ -1,7 +1,8 @@
 # Preview source patches
 
-These patches are applied to the `bitcoin` submodule in the pinned gui-qml
-checkout, after PR #752's own depends patch:
+These patches are applied to the pinned gui-qml checkout after PR #752's own
+depends patch. The version patch targets gui-qml itself; the network-default
+patch targets its `bitcoin` submodule:
 
 1. `0001-use-gui-qml-commit-for-version.patch` adds a build-time override for the
    user-facing version. The publisher supplies the exact gui-qml hash without
