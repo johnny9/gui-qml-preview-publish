@@ -1,0 +1,71 @@
+From: gui-qml preview publisher
+Subject: [PATCH] gui: default preview builds to signet
+
+Make signet the default chain when no explicit network is selected. Explicit
+`-chain`, `-testnet`, `-testnet4`, `-signet`, and `-regtest`
+selections keep their existing precedence.
+
+diff --git a/src/chainparamsbase.cpp b/src/chainparamsbase.cpp
+index d816d1a..104499d 100644
+--- a/src/chainparamsbase.cpp
++++ b/src/chainparamsbase.cpp
+@@ -13,7 +13,7 @@
+ 
+ void SetupChainParamsBaseOptions(ArgsManager& argsman)
+ {
+-    argsman.AddArg("-chain=<chain>", "Use the chain <chain> (default: main). Allowed values: " LIST_CHAIN_NAMES, ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
++    argsman.AddArg("-chain=<chain>", "Use the chain <chain> (default: signet). Allowed values: " LIST_CHAIN_NAMES, ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
+     argsman.AddArg("-regtest", "Enter regression test mode, which uses a special chain in which blocks can be solved instantly. "
+                  "This is intended for regression testing tools and app development. Equivalent to -chain=regtest.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);
+     argsman.AddArg("-testactivationheight=name@height.", "Set the activation height of 'name' (segwit, bip34, dersig, cltv, csv). (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+diff --git a/src/common/args.cpp b/src/common/args.cpp
+index 5c8589c..2376473 100644
+--- a/src/common/args.cpp
++++ b/src/common/args.cpp
+@@ -848,7 +848,7 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
+     if (fSigNet) return ChainType::SIGNET;
+     if (fTestNet) return ChainType::TESTNET;
+     if (fTestNet4) return ChainType::TESTNET4;
+-    return ChainType::MAIN;
++    return ChainType::SIGNET;
+ }
+ 
+ bool ArgsManager::UseDefaultSection(const std::string& arg) const
+diff --git a/src/common/args.h b/src/common/args.h
+index ea4e173..b93d1d1 100644
+--- a/src/common/args.h
++++ b/src/common/args.h
+@@ -340,14 +340,14 @@ protected:
+ 
+     /**
+      * Returns the appropriate chain type from the program arguments.
+-     * @return ChainType::MAIN by default; raises runtime error if an invalid
++     * @return ChainType::SIGNET by default; raises runtime error if an invalid
+      * combination, or unknown chain is given.
+      */
+     ChainType GetChainType() const;
+ 
+     /**
+      * Returns the appropriate chain type string from the program arguments.
+-     * @return ChainType::MAIN string by default; raises runtime error if an
++     * @return ChainType::SIGNET string by default; raises runtime error if an
+      * invalid combination is given.
+      */
+     std::string GetChainTypeString() const;
+diff --git a/src/test/argsman_tests.cpp b/src/test/argsman_tests.cpp
+index e91ae5e..85a072f 100644
+--- a/src/test/argsman_tests.cpp
++++ b/src/test/argsman_tests.cpp
+@@ -658,10 +658,10 @@ BOOST_AUTO_TEST_CASE(util_GetChainTypeString)
+     std::string error;
+ 
+     BOOST_CHECK(test_args.ParseParameters(0, argv_testnet4, error));
+-    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "main");
++    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "signet");
+ 
+     BOOST_CHECK(test_args.ParseParameters(0, argv_testnet4, error));
+-    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "main");
++    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "signet");
+ 
+     BOOST_CHECK(test_args.ParseParameters(2, argv_testnet4, error));
+     BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "testnet4");

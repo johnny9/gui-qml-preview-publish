@@ -1,0 +1,50 @@
+From: gui-qml preview publisher
+Subject: [PATCH] qml: display the gui-qml build hash
+
+Allow the publisher to inject the pinned gui-qml commit as the user-facing
+version. Keep Bitcoin Core's own release and P2P version behavior unchanged
+when the override is absent.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8661d8764..414af7b50 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -34,6 +34,7 @@ find_package(Libevent 2.1.8 MODULE REQUIRED)
+ find_package(QRencode MODULE REQUIRED)
+ 
+ option(ENABLE_TEST_AUTOMATION "Enable test automation bridge for QML UI testing" OFF)
++set(GUI_QML_BUILD_VERSION "" CACHE STRING "Override the displayed gui-qml build version")
+ 
+ # Do not build any executable targets from bitcoin submodule
+ set(BUILD_BENCH OFF)
+@@ -88,6 +89,9 @@ target_compile_definitions(bitcoinqml
+     QT_NO_KEYWORDS
+     QT_USE_QSTRINGBUILDER
+ )
++if(GUI_QML_BUILD_VERSION)
++  target_compile_definitions(bitcoinqml PUBLIC GUI_QML_BUILD_VERSION="${GUI_QML_BUILD_VERSION}")
++endif()
+ if(ENABLE_TEST_AUTOMATION)
+   target_compile_definitions(bitcoinqml PUBLIC ENABLE_TEST_AUTOMATION)
+ endif()
+diff --git a/qml/models/nodemodel.h b/qml/models/nodemodel.h
+index 07190ea47..019ee7117 100644
+--- a/qml/models/nodemodel.h
++++ b/qml/models/nodemodel.h
+@@ -71,7 +71,14 @@ public:
+ 
+     int blockTipHeight() const { return m_block_tip_height; }
+     void setBlockTipHeight(int new_height);
+-    QString fullClientVersion() const { return QString::fromStdString(FormatFullVersion()); }
++    QString fullClientVersion() const
++    {
++#ifdef GUI_QML_BUILD_VERSION
++        return QStringLiteral(GUI_QML_BUILD_VERSION);
++#else
++        return QString::fromStdString(FormatFullVersion());
++#endif
++    }
+     int numPeers() const { return m_num_peers; }
+     void setNumPeers(int new_num);
+     int numInboundPeers() const { return m_num_inbound_peers; }
+

@@ -1,0 +1,37 @@
+schema_version = 1
+
+[source]
+repository = "https://github.com/bitcoin-core/gui-qml.git"
+pull_request = "https://github.com/bitcoin-core/gui-qml/pull/752"
+fetch_ref = "refs/pull/752/head"
+commit = "d63e9642c2cfbb5ee1abad80688fbac89597b61a"
+bitcoin_commit = "6574cb40869b96b9ffc79c19dc8f4e467d60f321"
+depends_patch = "patches/depends-Add-Qt-Qml-and-Qt-Quick-modules.patch"
+depends_patch_sha256 = "6a8d4a8c3222c2fca258b5cd15eea7701a64c9ff4bfb9ecf2148a39949d03dd8"
+
+[build]
+build_type = "Release"
+build_directory = "build-depends"
+target = "bitcoin-core-app"
+minimum_macos = "14.0"
+architecture = "arm64"
+display_version = "d63e9642c2cf"
+
+[application]
+bundle_name = "Bitcoin-QML"
+display_name = "Bitcoin Core App Preview"
+executable = "bitcoin-core-app"
+bundle_identifier = "org.bitcoincore.gui-qml.preview"
+volume_name = "Bitcoin QML Preview"
+artifact_basename = "Bitcoin-QML-signet-arm64"
+url_scheme = "bitcoin"
+short_version = "31.0.0"
+bundle_version = "31.0.0"
+
+[[patches]]
+path = "patches/0001-use-gui-qml-commit-for-version.patch"
+target = "source"
+
+[[patches]]
+path = "patches/0002-default-to-signet.patch"
+target = "bitcoin"
