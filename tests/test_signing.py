@@ -46,6 +46,7 @@ class SigningTest(unittest.TestCase):
                 SIGNING_MARKER_CONTENT, encoding="utf-8"
             )
             (owned / "developer-id.p12").write_bytes(b"secret")
+            (owned / "AuthKey_ABCDEFGHIJ.p8").write_bytes(b"notary-key")
 
             cleanup_temporary_keychains(parent)
 
@@ -95,14 +96,18 @@ class SigningTest(unittest.TestCase):
         values = {
             "APPLE_CERTIFICATE_P12_BASE64": "Y2VydGlmaWNhdGU=",
             "APPLE_CERTIFICATE_PASSWORD": "certificate-password",
-            "APPLE_ID": "developer@example.com",
-            "APPLE_APP_SPECIFIC_PASSWORD": "app-password",
-            "APPLE_TEAM_ID": "ABCDE12345",
+            "APPLE_SIGNING_IDENTITY": "Developer ID Application: Example (ABCDE12345)",
+            "APPLE_API_KEY_ID": "ABCDEFGHIJ",
+            "APPLE_API_ISSUER_ID": "12345678-1234-1234-1234-123456789abc",
+            "APPLE_API_PRIVATE_KEY_BASE64": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCg==",
         }
         with patch.dict(os.environ, values, clear=False):
             credentials = AppleCredentials.from_environment()
 
             self.assertEqual(credentials.certificate_bytes(), b"certificate")
+            self.assertEqual(
+                credentials.api_private_key_bytes(), b"-----BEGIN PRIVATE KEY-----\n"
+            )
             self.assertTrue(all(name not in os.environ for name in values))
             self.assertNotIn("certificate-password", repr(credentials))
 
@@ -140,7 +145,13 @@ class SigningTest(unittest.TestCase):
     @patch("preview_publish.signing.run")
     def test_notarization_requires_accepted_status(self, run_mock, _require_tool) -> None:
         manifest = load_manifest()
-        signing = SigningContext(Path("keychain"), "identity", "profile")
+        signing = SigningContext(
+            Path("keychain"),
+            "identity",
+            Path("AuthKey_ABCDEFGHIJ.p8"),
+            "ABCDEFGHIJ",
+            "12345678-1234-1234-1234-123456789abc",
+        )
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
             dmg = layout.dmg(manifest)
@@ -168,7 +179,10 @@ class SigningTest(unittest.TestCase):
 
             submit_command = run_mock.call_args_list[0].args[0]
             self.assertIn("--wait", submit_command)
-            self.assertIn("--keychain-profile", submit_command)
+            self.assertIn("--key", submit_command)
+            self.assertIn("--key-id", submit_command)
+            self.assertIn("--issuer", submit_command)
+            self.assertNotIn("--keychain-profile", submit_command)
             self.assertEqual(run_mock.call_count, 2)
             self.assertTrue(
                 (

@@ -1,0 +1,52 @@
+name: Test macOS Signing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Validate Developer ID and notary API key
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+      APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
+    steps:
+      - name: Decode credentials and validate signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cert_path="$RUNNER_TEMP/developer_id_application.p12"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          authkey_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          keychain_password="$(openssl rand -base64 32)"
+          trap 'security delete-keychain "$keychain_path" >/dev/null 2>&1 || true; rm -f "$cert_path" "$authkey_path"' EXIT
+
+          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$cert_path"
+          printf '%s' "$APPLE_API_PRIVATE_KEY_BASE64" | base64 -D > "$authkey_path"
+          chmod 600 "$cert_path" "$authkey_path"
+          grep -q -- 'BEGIN PRIVATE KEY' "$authkey_path"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$keychain_password" "$keychain_path"
+
+          identities="$(security find-identity -v -p codesigning "$keychain_path")"
+          printf '%s\n' "$identities"
+          test "$(printf '%s\n' "$identities" | awk '/valid identities found/{print $1}')" = "1"
+          printf '%s\n' "$identities" | grep -F -- "\"${APPLE_SIGNING_IDENTITY}\""
+          xcrun notarytool --version

@@ -29,9 +29,14 @@ from .package import (
 SECRET_NAMES = (
     "APPLE_CERTIFICATE_P12_BASE64",
     "APPLE_CERTIFICATE_PASSWORD",
-    "APPLE_ID",
-    "APPLE_APP_SPECIFIC_PASSWORD",
-    "APPLE_TEAM_ID",
+    "APPLE_SIGNING_IDENTITY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER_ID",
+    "APPLE_API_PRIVATE_KEY_BASE64",
+)
+API_KEY_ID_RE = re.compile(r"^[A-Z0-9]{10}$")
+API_ISSUER_ID_RE = re.compile(
+    r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
 )
 
 MACHO_MAGICS = {
@@ -52,9 +57,10 @@ SIGNING_MARKER_CONTENT = "gui-qml-preview-publisher signing workspace v1\n"
 class AppleCredentials:
     certificate_base64: str = field(repr=False)
     certificate_password: str = field(repr=False)
-    apple_id: str = field(repr=False)
-    app_password: str = field(repr=False)
-    team_id: str = field(repr=False)
+    signing_identity: str = field(repr=False)
+    api_key_id: str = field(repr=False)
+    api_issuer_id: str = field(repr=False)
+    api_private_key_base64: str = field(repr=False)
 
     @classmethod
     def from_environment(cls) -> "AppleCredentials":
@@ -64,35 +70,60 @@ class AppleCredentials:
             raise PublisherError(
                 "Apple release credentials are not configured: " + ", ".join(missing)
             )
-        team_id = values["APPLE_TEAM_ID"]
-        if not re.fullmatch(r"[A-Z0-9]{10}", team_id):
-            raise PublisherError("APPLE_TEAM_ID must be a 10-character Apple team ID")
-        if "@" not in values["APPLE_ID"]:
-            raise PublisherError("APPLE_ID must be the Apple Account email address")
+        identity = values["APPLE_SIGNING_IDENTITY"]
+        if not identity.startswith("Developer ID Application: "):
+            raise PublisherError(
+                "APPLE_SIGNING_IDENTITY must be a Developer ID Application identity label"
+            )
+        api_key_id = values["APPLE_API_KEY_ID"]
+        if not API_KEY_ID_RE.fullmatch(api_key_id):
+            raise PublisherError("APPLE_API_KEY_ID must be a 10-character App Store Connect key ID")
+        api_issuer_id = values["APPLE_API_ISSUER_ID"]
+        if not API_ISSUER_ID_RE.fullmatch(api_issuer_id):
+            raise PublisherError("APPLE_API_ISSUER_ID must be an App Store Connect issuer UUID")
         return cls(
             certificate_base64=values["APPLE_CERTIFICATE_P12_BASE64"],
             certificate_password=values["APPLE_CERTIFICATE_PASSWORD"],
-            apple_id=values["APPLE_ID"],
-            app_password=values["APPLE_APP_SPECIFIC_PASSWORD"],
-            team_id=team_id,
+            signing_identity=identity,
+            api_key_id=api_key_id,
+            api_issuer_id=api_issuer_id,
+            api_private_key_base64=values["APPLE_API_PRIVATE_KEY_BASE64"],
         )
 
-    def certificate_bytes(self) -> bytes:
-        compact = "".join(self.certificate_base64.split())
+    @staticmethod
+    def _decode_base64(value: str, name: str) -> bytes:
+        compact = "".join(value.split())
         try:
-            certificate = base64.b64decode(compact, validate=True)
+            decoded = base64.b64decode(compact, validate=True)
         except (ValueError, binascii.Error) as error:
-            raise PublisherError("APPLE_CERTIFICATE_P12_BASE64 is not valid base64") from error
-        if not certificate:
-            raise PublisherError("APPLE_CERTIFICATE_P12_BASE64 decodes to an empty file")
-        return certificate
+            raise PublisherError(f"{name} is not valid base64") from error
+        if not decoded:
+            raise PublisherError(f"{name} decodes to an empty file")
+        return decoded
+
+    def certificate_bytes(self) -> bytes:
+        return self._decode_base64(
+            self.certificate_base64, "APPLE_CERTIFICATE_P12_BASE64"
+        )
+
+    def api_private_key_bytes(self) -> bytes:
+        key = self._decode_base64(
+            self.api_private_key_base64, "APPLE_API_PRIVATE_KEY_BASE64"
+        )
+        if not re.match(br"-----BEGIN [A-Z ]*PRIVATE KEY-----", key):
+            raise PublisherError(
+                "APPLE_API_PRIVATE_KEY_BASE64 must decode to a PEM private key"
+            )
+        return key
 
 
 @dataclass(frozen=True)
 class SigningContext:
     keychain: Path
     identity: str
-    notary_profile: str
+    notary_key: Path
+    notary_key_id: str
+    notary_issuer_id: str
 
 
 class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
@@ -123,6 +154,9 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
         certificate_path = directory / "developer-id.p12"
         certificate_path.write_bytes(self.credentials.certificate_bytes())
         certificate_path.chmod(0o600)
+        authkey_path = directory / f"AuthKey_{self.credentials.api_key_id}.p8"
+        authkey_path.write_bytes(self.credentials.api_private_key_bytes())
+        authkey_path.chmod(0o600)
         self._keychain = directory / "signing.keychain-db"
         keychain_password = secrets.token_urlsafe(32)
 
@@ -148,6 +182,8 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
                 self.credentials.certificate_password,
                 "-T",
                 "/usr/bin/codesign",
+                "-T",
+                "/usr/bin/security",
             ],
             redacted=(6,),
         )
@@ -156,7 +192,7 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
                 security,
                 "set-key-partition-list",
                 "-S",
-                "apple-tool:,apple:",
+                "apple-tool:,apple:,codesign:",
                 "-s",
                 "-k",
                 keychain_password,
@@ -166,23 +202,13 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
         )
 
         identity = self._find_identity()
-        profile = f"gui-qml-notary-{secrets.token_hex(6)}"
-        command = [
-            require_tool("xcrun"),
-            "notarytool",
-            "store-credentials",
-            profile,
-            "--apple-id",
-            self.credentials.apple_id,
-            "--password",
-            self.credentials.app_password,
-            "--team-id",
-            self.credentials.team_id,
-            "--keychain",
+        return SigningContext(
             self._keychain,
-        ]
-        run(command, capture=True, redacted=(5, 7))
-        return SigningContext(self._keychain, identity, profile)
+            identity,
+            authkey_path,
+            self.credentials.api_key_id,
+            self.credentials.api_issuer_id,
+        )
 
     def _find_identity(self) -> str:
         assert self._keychain is not None
@@ -198,7 +224,7 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
             capture=True,
         )
         identities = re.findall(
-            r'^\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(Developer ID Application:[^"]+)"',
+            r'^\s*\d+\)\s+[0-9A-Fa-f]{40}\s+"(Developer ID Application:[^"]+)"',
             result.stdout,
             re.MULTILINE,
         )
@@ -206,12 +232,12 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
             raise PublisherError(
                 "The P12 must contain exactly one valid Developer ID Application identity"
             )
-        fingerprint, label = identities[0]
-        if not label.endswith(f"({self.credentials.team_id})"):
+        label = identities[0]
+        if label != self.credentials.signing_identity:
             raise PublisherError(
-                "Developer ID certificate team does not match APPLE_TEAM_ID"
+                "Developer ID identity in the P12 does not match APPLE_SIGNING_IDENTITY"
             )
-        return fingerprint
+        return label
 
     def _cleanup(self) -> None:
         security = shutil.which("security")
@@ -310,10 +336,12 @@ def sign_dmg(dmg: Path, signing: SigningContext) -> None:
 
 def _notary_arguments(signing: SigningContext) -> list[str | Path]:
     return [
-        "--keychain-profile",
-        signing.notary_profile,
-        "--keychain",
-        signing.keychain,
+        "--key",
+        signing.notary_key,
+        "--key-id",
+        signing.notary_key_id,
+        "--issuer",
+        signing.notary_issuer_id,
     ]
 
 
@@ -424,10 +452,8 @@ def staple_and_verify(dmg: Path) -> None:
 def check_credentials() -> None:
     credentials = AppleCredentials.from_environment()
     with TemporaryAppleKeychain(credentials) as signing:
-        print(
-            "Validated Developer ID Application certificate and Apple notarization "
-            f"credentials for team {credentials.team_id} ({signing.identity[-8:]})"
-        )
+        run([require_tool("xcrun"), "notarytool", "--version"], capture=True)
+        print("Validated the requested Developer ID Application identity and notary API key")
 
 
 def finalize(layout: Layout, manifest: Manifest) -> Path:
@@ -496,7 +522,12 @@ def cleanup_temporary_keychains(parent: Path) -> None:
             "signing.keychain-db",
         }
         remaining = list(directory.iterdir())
-        unexpected = [child.name for child in remaining if child.name not in allowed_names]
+        unexpected = [
+            child.name
+            for child in remaining
+            if child.name not in allowed_names
+            and not re.fullmatch(r"AuthKey_[A-Z0-9]{10}\.p8", child.name)
+        ]
         if unexpected:
             raise PublisherError(
                 f"Refusing to clean signing workspace with unexpected contents: {directory}"
