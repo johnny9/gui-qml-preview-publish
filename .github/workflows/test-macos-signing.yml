@@ -44,6 +44,7 @@ jobs:
             -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
             -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
 
           identities="$(security find-identity -v -p codesigning "$keychain_path")"
           printf '%s\n' "$identities"

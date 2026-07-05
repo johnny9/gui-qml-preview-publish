@@ -23,6 +23,17 @@ from preview_publish.signing import (
 
 class SigningTest(unittest.TestCase):
     @staticmethod
+    def _credentials() -> AppleCredentials:
+        return AppleCredentials(
+            certificate_base64="Y2VydGlmaWNhdGU=",
+            certificate_password="certificate-password",
+            signing_identity="Developer ID Application: Example (ABCDE12345)",
+            api_key_id="ABCDEFGHIJ",
+            api_issuer_id="12345678-1234-1234-1234-123456789abc",
+            api_private_key_base64="LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCg==",
+        )
+
+    @staticmethod
     def _write_unsigned_bundle(app: Path, executable_name: str) -> Path:
         executable = app / "Contents" / "MacOS" / executable_name
         resources = app / "Contents" / "Resources"
@@ -124,15 +135,7 @@ class SigningTest(unittest.TestCase):
     ) -> None:
         identity = "Developer ID Application: Example (ABCDE12345)"
         fingerprint = "0123456789ABCDEF0123456789ABCDEF01234567"
-        credentials = AppleCredentials(
-            certificate_base64="Y2VydGlmaWNhdGU=",
-            certificate_password="certificate-password",
-            signing_identity=identity,
-            api_key_id="ABCDEFGHIJ",
-            api_issuer_id="12345678-1234-1234-1234-123456789abc",
-            api_private_key_base64="LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCg==",
-        )
-        keychain = TemporaryAppleKeychain(credentials)
+        keychain = TemporaryAppleKeychain(self._credentials())
         keychain._keychain = Path("signing.keychain-db")
         run_mock.return_value = subprocess.CompletedProcess(
             [],
@@ -142,6 +145,67 @@ class SigningTest(unittest.TestCase):
         )
 
         self.assertEqual(keychain._find_identity(), fingerprint)
+
+    @patch("preview_publish.signing.run")
+    def test_temporary_keychain_is_added_to_user_search_list(self, run_mock) -> None:
+        keychain = TemporaryAppleKeychain(self._credentials())
+        keychain._keychain = Path("/tmp/signing.keychain-db")
+        run_mock.side_effect = [
+            subprocess.CompletedProcess(
+                [],
+                0,
+                stdout='    "/Users/runner/Library/Keychains/login.keychain-db"\n',
+                stderr="",
+            ),
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        ]
+
+        keychain._add_to_user_keychain_search_list("security")
+
+        self.assertEqual(
+            keychain._original_user_keychains,
+            ("/Users/runner/Library/Keychains/login.keychain-db",),
+        )
+        self.assertEqual(
+            run_mock.call_args_list[1].args[0],
+            [
+                "security",
+                "list-keychains",
+                "-d",
+                "user",
+                "-s",
+                Path("/tmp/signing.keychain-db"),
+                "/Users/runner/Library/Keychains/login.keychain-db",
+            ],
+        )
+
+    @patch("preview_publish.signing.shutil.which", return_value="security")
+    @patch("preview_publish.signing.subprocess.run")
+    def test_cleanup_restores_user_search_list_before_deleting_keychain(
+        self, run_mock, _which_mock
+    ) -> None:
+        keychain = TemporaryAppleKeychain(self._credentials())
+        keychain._keychain = Path("/tmp/signing.keychain-db")
+        keychain._original_user_keychains = (
+            "/Users/runner/Library/Keychains/login.keychain-db",
+        )
+
+        keychain._cleanup()
+
+        self.assertEqual(
+            [call.args[0] for call in run_mock.call_args_list],
+            [
+                [
+                    "security",
+                    "list-keychains",
+                    "-d",
+                    "user",
+                    "-s",
+                    "/Users/runner/Library/Keychains/login.keychain-db",
+                ],
+                ["security", "delete-keychain", Path("/tmp/signing.keychain-db")],
+            ],
+        )
 
     def test_static_bundle_rejects_nested_macho(self) -> None:
         manifest = load_manifest()

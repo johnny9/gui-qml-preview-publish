@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import stat
 import subprocess
@@ -132,6 +133,7 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
         self.parent = parent
         self._temporary: tempfile.TemporaryDirectory[str] | None = None
         self._keychain: Path | None = None
+        self._original_user_keychains: tuple[str, ...] | None = None
 
     def __enter__(self) -> SigningContext:
         if self.parent is not None:
@@ -201,6 +203,7 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
             redacted=(6,),
             capture=True,
         )
+        self._add_to_user_keychain_search_list(security)
 
         fingerprint = self._find_identity()
         return SigningContext(
@@ -209,6 +212,26 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
             authkey_path,
             self.credentials.api_key_id,
             self.credentials.api_issuer_id,
+        )
+
+    def _add_to_user_keychain_search_list(self, security: str) -> None:
+        assert self._keychain is not None
+        result = run(
+            [security, "list-keychains", "-d", "user"],
+            capture=True,
+        )
+        try:
+            original = tuple(shlex.split(result.stdout))
+        except ValueError as error:
+            raise PublisherError("Could not parse the user keychain search list") from error
+        self._original_user_keychains = original
+        updated = [
+            self._keychain,
+            *(keychain for keychain in original if Path(keychain) != self._keychain),
+        ]
+        run(
+            [security, "list-keychains", "-d", "user", "-s", *updated],
+            capture=True,
         )
 
     def _find_identity(self) -> str:
@@ -242,6 +265,21 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
 
     def _cleanup(self) -> None:
         security = shutil.which("security")
+        if security is not None and self._original_user_keychains:
+            subprocess.run(
+                [
+                    security,
+                    "list-keychains",
+                    "-d",
+                    "user",
+                    "-s",
+                    *self._original_user_keychains,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        self._original_user_keychains = None
         if self._keychain is not None and security is not None:
             subprocess.run(
                 [security, "delete-keychain", self._keychain],
