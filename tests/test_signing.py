@@ -14,6 +14,7 @@ from preview_publish.signing import (
     SIGNING_MARKER_CONTENT,
     SIGNING_MARKER_NAME,
     SigningContext,
+    TemporaryAppleKeychain,
     assert_static_bundle,
     cleanup_temporary_keychains,
     notarize_dmg,
@@ -115,6 +116,32 @@ class SigningTest(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(PublisherError):
                 AppleCredentials.from_environment()
+
+    @patch("preview_publish.signing.require_tool", return_value="security")
+    @patch("preview_publish.signing.run")
+    def test_identity_label_is_validated_but_codesign_uses_fingerprint(
+        self, run_mock, _require_tool
+    ) -> None:
+        identity = "Developer ID Application: Example (ABCDE12345)"
+        fingerprint = "0123456789ABCDEF0123456789ABCDEF01234567"
+        credentials = AppleCredentials(
+            certificate_base64="Y2VydGlmaWNhdGU=",
+            certificate_password="certificate-password",
+            signing_identity=identity,
+            api_key_id="ABCDEFGHIJ",
+            api_issuer_id="12345678-1234-1234-1234-123456789abc",
+            api_private_key_base64="LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCg==",
+        )
+        keychain = TemporaryAppleKeychain(credentials)
+        keychain._keychain = Path("signing.keychain-db")
+        run_mock.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=f'  1) {fingerprint} "{identity}"\n     1 valid identities found\n',
+            stderr="",
+        )
+
+        self.assertEqual(keychain._find_identity(), fingerprint)
 
     def test_static_bundle_rejects_nested_macho(self) -> None:
         manifest = load_manifest()

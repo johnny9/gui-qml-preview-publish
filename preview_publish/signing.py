@@ -120,7 +120,7 @@ class AppleCredentials:
 @dataclass(frozen=True)
 class SigningContext:
     keychain: Path
-    identity: str
+    fingerprint: str
     notary_key: Path
     notary_key_id: str
     notary_issuer_id: str
@@ -199,12 +199,13 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
                 self._keychain,
             ],
             redacted=(6,),
+            capture=True,
         )
 
-        identity = self._find_identity()
+        fingerprint = self._find_identity()
         return SigningContext(
             self._keychain,
-            identity,
+            fingerprint,
             authkey_path,
             self.credentials.api_key_id,
             self.credentials.api_issuer_id,
@@ -224,7 +225,7 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
             capture=True,
         )
         identities = re.findall(
-            r'^\s*\d+\)\s+[0-9A-Fa-f]{40}\s+"(Developer ID Application:[^"]+)"',
+            r'^\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(Developer ID Application:[^"]+)"',
             result.stdout,
             re.MULTILINE,
         )
@@ -232,12 +233,12 @@ class TemporaryAppleKeychain(AbstractContextManager[SigningContext]):
             raise PublisherError(
                 "The P12 must contain exactly one valid Developer ID Application identity"
             )
-        label = identities[0]
+        fingerprint, label = identities[0]
         if label != self.credentials.signing_identity:
             raise PublisherError(
                 "Developer ID identity in the P12 does not match APPLE_SIGNING_IDENTITY"
             )
-        return label
+        return fingerprint
 
     def _cleanup(self) -> None:
         security = shutil.which("security")
@@ -291,7 +292,7 @@ def sign_app(
             require_tool("codesign"),
             "--force",
             "--sign",
-            signing.identity,
+            signing.fingerprint,
             "--keychain",
             signing.keychain,
             "--options",
@@ -324,7 +325,7 @@ def sign_dmg(dmg: Path, signing: SigningContext) -> None:
             require_tool("codesign"),
             "--force",
             "--sign",
-            signing.identity,
+            signing.fingerprint,
             "--keychain",
             signing.keychain,
             "--timestamp",
