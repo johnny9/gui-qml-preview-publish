@@ -183,15 +183,32 @@ The final protected stage must:
 4. Create the manifest-named DMG (currently
    `Bitcoin-QML-signet-arm64.dmg`), sign it with a timestamp, and verify the
    signature.
-5. Submit it with the decoded API key:
+5. Submit it with the decoded API key, capture the submission ID immediately,
+   and then wait separately so the Actions log identifies the Apple submission
+   before the potentially long wait:
 
    ```sh
-   xcrun notarytool submit "$DMG_PATH" \
+   SUBMIT_JSON="$(xcrun notarytool submit "$DMG_PATH" \
      --key "$APPLE_AUTHKEY_PATH" \
      --key-id "$APPLE_API_KEY_ID" \
      --issuer "$APPLE_API_ISSUER_ID" \
-     --wait
+     --no-progress \
+     --output-format json)"
+
+   SUBMISSION_ID="$(python3 -c \
+     'import json,sys; print(json.load(sys.stdin)["id"])' <<< "$SUBMIT_JSON")"
+   echo "Notarization submission id: $SUBMISSION_ID"
+
+   xcrun notarytool wait "$SUBMISSION_ID" \
+     --key "$APPLE_AUTHKEY_PATH" \
+     --key-id "$APPLE_API_KEY_ID" \
+     --issuer "$APPLE_API_ISSUER_ID" \
+     --timeout 2h \
+     --output-format json
    ```
+
+   Preserve the submit and wait JSON receipts. If the wait does not return
+   `Accepted`, fetch `xcrun notarytool log "$SUBMISSION_ID" ...` before failing.
 
 6. Staple and validate the ticket, then perform the DMG Gatekeeper-style
    check:

@@ -234,7 +234,9 @@ class SigningTest(unittest.TestCase):
 
     @patch("preview_publish.signing.require_tool", side_effect=lambda name: name)
     @patch("preview_publish.signing.run")
-    def test_notarization_requires_accepted_status(self, run_mock, _require_tool) -> None:
+    def test_notarization_submits_then_waits_for_accepted_status(
+        self, run_mock, _require_tool
+    ) -> None:
         manifest = load_manifest()
         signing = SigningContext(
             Path("keychain"),
@@ -248,8 +250,21 @@ class SigningTest(unittest.TestCase):
             dmg = layout.dmg(manifest)
             dmg.parent.mkdir(parents=True)
             dmg.write_bytes(b"dmg")
+
             def fake_run(command, **_kwargs):
                 if "submit" in command:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=json.dumps(
+                            {
+                                "id": "12345678-1234-1234-1234-123456789abc",
+                                "status": "In Progress",
+                            }
+                        ),
+                        stderr="",
+                    )
+                if "wait" in command:
                     return subprocess.CompletedProcess(
                         command,
                         0,
@@ -269,17 +284,115 @@ class SigningTest(unittest.TestCase):
             notarize_dmg(dmg, layout, signing)
 
             submit_command = run_mock.call_args_list[0].args[0]
-            self.assertIn("--wait", submit_command)
+            wait_command = run_mock.call_args_list[1].args[0]
+            self.assertNotIn("--wait", submit_command)
+            self.assertNotIn("--timeout", submit_command)
+            self.assertEqual(
+                wait_command[1:4],
+                [
+                    "notarytool",
+                    "wait",
+                    "12345678-1234-1234-1234-123456789abc",
+                ],
+            )
+            self.assertIn("--timeout", wait_command)
             self.assertIn("--key", submit_command)
             self.assertIn("--key-id", submit_command)
             self.assertIn("--issuer", submit_command)
             self.assertNotIn("--keychain-profile", submit_command)
-            self.assertEqual(run_mock.call_count, 2)
+            self.assertEqual(run_mock.call_count, 3)
             self.assertTrue(
                 (
                     layout.artifacts
                     / "notary-12345678-1234-1234-1234-123456789abc.json"
                 ).is_file()
+            )
+            self.assertTrue(
+                (
+                    layout.artifacts
+                    / "notary-12345678-1234-1234-1234-123456789abc-submit.json"
+                ).is_file()
+            )
+            self.assertTrue(
+                (
+                    layout.artifacts
+                    / "notary-12345678-1234-1234-1234-123456789abc-wait.json"
+                ).is_file()
+            )
+
+    @patch("preview_publish.signing.require_tool", side_effect=lambda name: name)
+    @patch("preview_publish.signing.run")
+    def test_notarization_wait_failure_fetches_log(
+        self, run_mock, _require_tool
+    ) -> None:
+        manifest = load_manifest()
+        signing = SigningContext(
+            Path("keychain"),
+            "identity",
+            Path("AuthKey_ABCDEFGHIJ.p8"),
+            "ABCDEFGHIJ",
+            "12345678-1234-1234-1234-123456789abc",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            dmg = layout.dmg(manifest)
+            dmg.parent.mkdir(parents=True)
+            dmg.write_bytes(b"dmg")
+
+            def fake_run(command, **_kwargs):
+                if "submit" in command:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=json.dumps(
+                            {
+                                "id": "12345678-1234-1234-1234-123456789abc",
+                                "status": "In Progress",
+                            }
+                        ),
+                        stderr="",
+                    )
+                if "wait" in command:
+                    return subprocess.CompletedProcess(
+                        command,
+                        1,
+                        stdout=json.dumps(
+                            {
+                                "id": "12345678-1234-1234-1234-123456789abc",
+                                "status": "In Progress",
+                            }
+                        ),
+                        stderr="wait timed out",
+                    )
+                Path(command[4]).write_text(
+                    '{"status":"In Progress"}\n', encoding="utf-8"
+                )
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            run_mock.side_effect = fake_run
+
+            with self.assertRaisesRegex(
+                PublisherError,
+                "submission='12345678-1234-1234-1234-123456789abc'",
+            ):
+                notarize_dmg(dmg, layout, signing)
+
+            self.assertEqual(run_mock.call_args_list[2].args[0][1:3], [
+                "notarytool",
+                "log",
+            ])
+            self.assertTrue(
+                (
+                    layout.artifacts
+                    / "notary-12345678-1234-1234-1234-123456789abc.json"
+                ).is_file()
+            )
+            self.assertEqual(
+                (
+                    layout.artifacts
+                    / "notary-12345678-1234-1234-1234-123456789abc-wait.stderr.txt"
+                ).read_text(encoding="utf-8"),
+                "wait timed out",
             )
 
 

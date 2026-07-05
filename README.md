@@ -125,8 +125,10 @@ notarize, staple, or upload an artifact.
    uploads the validated unsigned app.
 2. A fresh `macos-15` job in `release-signing` downloads that app, applies a
    timestamped Developer ID signature with hardened runtime, creates and
-   signs the DMG, submits it to `notarytool` with the API key, staples it, and
-   performs Gatekeeper-style validation.
+   signs the DMG, submits it to `notarytool` with the API key, reports the
+   submission ID, waits for acceptance, staples it, and performs
+   Gatekeeper-style validation. Submit and wait receipts plus the Apple log
+   are preserved in the workflow artifact for diagnosis.
 3. The signed DMG and post-staple `SHA256SUMS` replace the assets on the
    `nightly` prerelease.
 

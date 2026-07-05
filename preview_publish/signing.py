@@ -385,16 +385,14 @@ def _notary_arguments(signing: SigningContext) -> list[str | Path]:
 
 
 def notarize_dmg(dmg: Path, layout: Layout, signing: SigningContext) -> None:
-    result = run(
+    layout.artifacts.mkdir(parents=True, exist_ok=True)
+    submit_result = run(
         [
             require_tool("xcrun"),
             "notarytool",
             "submit",
             dmg,
             *_notary_arguments(signing),
-            "--wait",
-            "--timeout",
-            "2h",
             "--no-progress",
             "--output-format",
             "json",
@@ -403,30 +401,73 @@ def notarize_dmg(dmg: Path, layout: Layout, signing: SigningContext) -> None:
         check=False,
     )
     try:
-        response = json.loads(result.stdout)
+        submit_response = json.loads(submit_result.stdout)
     except json.JSONDecodeError:
-        response = {}
-    if not isinstance(response, dict):
-        response = {}
-    submission_id = response.get("id")
+        submit_response = {}
+    if not isinstance(submit_response, dict):
+        submit_response = {}
+    submission_id = submit_response.get("id")
     if not isinstance(submission_id, str) or not re.fullmatch(
         r"[0-9A-Fa-f-]{36}", submission_id
     ):
         submission_id = None
-    status = response.get("status")
-    layout.artifacts.mkdir(parents=True, exist_ok=True)
-    log_path = layout.artifacts / f"notary-{submission_id or 'submit-error'}.json"
-    if result.returncode != 0 or status != "Accepted" or not submission_id:
-        if submission_id:
-            _download_notary_log(submission_id, log_path, signing)
-        else:
-            log_path.write_text(
-                f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}\n",
-                encoding="utf-8",
-            )
+    if submit_result.returncode != 0 or not submission_id:
+        error_path = layout.artifacts / "notary-submit-error.txt"
+        error_path.write_text(
+            f"stdout:\n{submit_result.stdout}\n\nstderr:\n{submit_result.stderr}\n",
+            encoding="utf-8",
+        )
+        raise PublisherError(
+            f"Apple notarization submission failed (submission={submission_id!r}); "
+            f"details: {error_path}"
+        )
+
+    submit_path = layout.artifacts / f"notary-{submission_id}-submit.json"
+    submit_path.write_text(submit_result.stdout.rstrip() + "\n", encoding="utf-8")
+    print(submit_result.stdout.rstrip(), flush=True)
+    print(f"Apple notarization submitted: {submission_id}", flush=True)
+
+    wait_result = run(
+        [
+            require_tool("xcrun"),
+            "notarytool",
+            "wait",
+            submission_id,
+            *_notary_arguments(signing),
+            "--timeout",
+            "2h",
+            "--output-format",
+            "json",
+        ],
+        capture=True,
+        check=False,
+    )
+    wait_path = layout.artifacts / f"notary-{submission_id}-wait.json"
+    wait_path.write_text(wait_result.stdout.rstrip() + "\n", encoding="utf-8")
+    if wait_result.stdout:
+        print(wait_result.stdout.rstrip(), flush=True)
+    wait_error_path: Path | None = None
+    if wait_result.stderr:
+        wait_error_path = layout.artifacts / f"notary-{submission_id}-wait.stderr.txt"
+        wait_error_path.write_text(wait_result.stderr, encoding="utf-8")
+        print(wait_result.stderr.rstrip(), flush=True)
+    try:
+        wait_response = json.loads(wait_result.stdout)
+    except json.JSONDecodeError:
+        wait_response = {}
+    if not isinstance(wait_response, dict):
+        wait_response = {}
+    status = wait_response.get("status")
+    log_path = layout.artifacts / f"notary-{submission_id}.json"
+    if wait_result.returncode != 0 or status != "Accepted":
+        _download_notary_log(submission_id, log_path, signing)
+        wait_details = f"{wait_path}"
+        if wait_error_path:
+            wait_details += f" and {wait_error_path}"
         raise PublisherError(
             f"Apple notarization was not accepted (status={status!r}, "
-            f"submission={submission_id!r}); details: {log_path}"
+            f"submission={submission_id!r}); wait details: {wait_details}; "
+            f"notary log: {log_path}"
         )
     if not _download_notary_log(submission_id, log_path, signing):
         raise PublisherError(
