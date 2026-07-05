@@ -20,7 +20,7 @@ def repository_root() -> Path:
 @dataclass(frozen=True)
 class SourceConfig:
     repository: str
-    pull_request: str
+    reference: str
     fetch_ref: str
     commit: str
     bitcoin_commit: str
@@ -124,7 +124,7 @@ def load_manifest(path: Path | None = None) -> Manifest:
         if not SHA256_RE.fullmatch(digest):
             raise PublisherError(f"{name} must be lowercase SHA-256")
     if build.display_version != source.commit[:12]:
-        raise PublisherError("build.display_version must be the pinned gui-qml short hash")
+        raise PublisherError("build.display_version must be the pinned source short hash")
     if build.architecture not in {"arm64", "x86_64"}:
         raise PublisherError(f"Unsupported macOS architecture: {build.architecture}")
     if "/" in application.bundle_name or not application.bundle_name:

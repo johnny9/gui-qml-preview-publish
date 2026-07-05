@@ -1,9 +1,9 @@
 schema_version = 1
 
 [source]
-repository = "https://github.com/bitcoin-core/gui-qml.git"
-pull_request = "https://github.com/bitcoin-core/gui-qml/pull/752"
-fetch_ref = "refs/pull/752/head"
+repository = "https://github.com/johnny9/BitcoinCoreAppDevelopment.git"
+reference = "https://github.com/johnny9/BitcoinCoreAppDevelopment/tree/qt6"
+fetch_ref = "refs/heads/qt6"
 commit = "d63e9642c2cfbb5ee1abad80688fbac89597b61a"
 bitcoin_commit = "6574cb40869b96b9ffc79c19dc8f4e467d60f321"
 depends_patch = "patches/depends-Add-Qt-Qml-and-Qt-Quick-modules.patch"

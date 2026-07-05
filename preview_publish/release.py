@@ -114,8 +114,8 @@ def _release_body(manifest: Manifest) -> str:
         [
             "Automated signed and notarized macOS preview.",
             "",
-            f"- gui-qml PR: {manifest.source.pull_request}",
-            f"- gui-qml commit: `{manifest.source.commit}`",
+            f"- source ref: {manifest.source.reference}",
+            f"- source commit: `{manifest.source.commit}`",
             f"- Bitcoin Core commit: `{manifest.source.bitcoin_commit}`",
             "- default network: signet",
             f"- architecture: {manifest.build.architecture}",

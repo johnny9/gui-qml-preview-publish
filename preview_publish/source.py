@@ -25,7 +25,7 @@ def _verify_checkout(layout: Layout, manifest: Manifest) -> None:
     head = _git_output("rev-parse", "HEAD", cwd=layout.source)
     if head != manifest.source.commit:
         raise PublisherError(
-            f"gui-qml checkout is {head}, expected {manifest.source.commit}. "
+            f"Source checkout is {head}, expected {manifest.source.commit}. "
             "Run checkout with --clean to recreate the tool-owned source tree."
         )
     bitcoin_head = _git_output("rev-parse", "HEAD", cwd=layout.source / "bitcoin")
@@ -145,7 +145,7 @@ def checkout(layout: Layout, manifest: Manifest, *, clean: bool = False) -> None
         fetched = _git_output("rev-parse", "FETCH_HEAD", cwd=layout.source)
         if fetched != manifest.source.commit:
             raise PublisherError(
-                f"PR ref resolved to {fetched}, but the reviewed pin is "
+                f"Configured source ref resolved to {fetched}, but the reviewed pin is "
                 f"{manifest.source.commit}. Review and update the manifest deliberately."
             )
         _git("checkout", "--detach", manifest.source.commit, cwd=layout.source)
@@ -181,4 +181,4 @@ def checkout(layout: Layout, manifest: Manifest, *, clean: bool = False) -> None
     )
     _verify_patched_tree(layout.source, manifest.source.patched_source_diff_sha256)
     _verify_checkout(layout, manifest)
-    print(f"Prepared gui-qml {manifest.source.commit} in {layout.source}")
+    print(f"Prepared source {manifest.source.commit} in {layout.source}")

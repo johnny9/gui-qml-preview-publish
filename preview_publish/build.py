@@ -85,7 +85,7 @@ def validate_binary(binary: Path, manifest: Manifest) -> None:
         )
     if not _contains_display_version(binary, manifest.build.display_version):
         raise PublisherError(
-            f"Executable does not contain gui-qml version {manifest.build.display_version}"
+            f"Executable does not contain source version {manifest.build.display_version}"
         )
     if not _contains_any(binary, (b"default: signet",)):
         raise PublisherError("Executable does not contain the signet-default build marker")

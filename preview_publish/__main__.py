@@ -18,7 +18,7 @@ from .source import checkout
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gui-qml-preview",
-        description="Build and package the pinned gui-qml macOS preview.",
+        description="Build and package the pinned Bitcoin Core App macOS preview.",
     )
     parser.add_argument("--manifest", type=Path, help="release TOML manifest")
     parser.add_argument("--work-dir", type=Path, default=Path("build"))
@@ -27,7 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     checkout_parser = subparsers.add_parser("checkout", help="fetch and patch source")
     checkout_parser.add_argument("--clean", action="store_true")
 
-    build_parser = subparsers.add_parser("build", help="build depends and gui-qml")
+    build_parser = subparsers.add_parser("build", help="build depends and Bitcoin Core App")
     build_parser.add_argument("--jobs", type=int)
 
     subparsers.add_parser("package", help="create and deploy Bitcoin-QML.app")
