@@ -10,6 +10,13 @@ from .config import Manifest
 from .errors import PublisherError
 from .layout import Layout
 
+STATIC_QML_PLUGIN_CLASSES = (
+    "QtQuick2Plugin",
+    "QtQuickControls2Plugin",
+    "QtQuickLayoutsPlugin",
+    "QmlSettingsPlugin",
+)
+
 
 def depends_host(source: Path) -> str:
     depends = source / "bitcoin" / "depends"
@@ -58,6 +65,14 @@ def _contains_display_version(binary: Path, version: str) -> bool:
     return _contains_any(binary, (version.encode("ascii"), version.encode("utf-16le")))
 
 
+def _missing_static_qml_plugins(symbols: str) -> tuple[str, ...]:
+    return tuple(
+        plugin
+        for plugin in STATIC_QML_PLUGIN_CLASSES
+        if f"qt_plugin_instance_{plugin}" not in symbols
+    )
+
+
 def validate_binary(binary: Path, manifest: Manifest) -> None:
     if not binary.is_file():
         raise PublisherError(f"Build did not produce {binary}")
@@ -75,6 +90,12 @@ def validate_binary(binary: Path, manifest: Manifest) -> None:
     if unexpected:
         raise PublisherError(
             "Static depends build contains undeployed libraries: " + ", ".join(unexpected)
+        )
+    missing_plugins = _missing_static_qml_plugins(output([require_tool("nm"), binary]))
+    if missing_plugins:
+        raise PublisherError(
+            "Static depends build is missing QML plugins: "
+            + ", ".join(missing_plugins)
         )
     load_commands = output([require_tool("otool"), "-l", binary])
     minimum_versions = re.findall(r"^\s+minos\s+([0-9.]+)$", load_commands, re.MULTILINE)
@@ -94,7 +115,16 @@ def validate_binary(binary: Path, manifest: Manifest) -> None:
 def build(layout: Layout, manifest: Manifest, *, jobs: int | None = None) -> Path:
     if platform.system() != "Darwin":
         raise PublisherError("The native preview build must run on macOS")
-    for tool in ("bison", "cmake", "gmake", "ninja", "pkgconf", "lipo", "otool"):
+    for tool in (
+        "bison",
+        "cmake",
+        "gmake",
+        "ninja",
+        "pkgconf",
+        "lipo",
+        "nm",
+        "otool",
+    ):
         require_tool(tool)
     bison_version = output([require_tool("bison"), "--version"]).splitlines()[0]
     match = re.search(r"\b([0-9]+)\.", bison_version)

@@ -9,7 +9,7 @@ class ManifestTest(unittest.TestCase):
 
         self.assertEqual(
             manifest.source.commit,
-            "d63e9642c2cfbb5ee1abad80688fbac89597b61a",
+            "e5a893c991a3d7779b4d30c8765b76c623fa0b89",
         )
         self.assertEqual(
             manifest.source.bitcoin_commit,
