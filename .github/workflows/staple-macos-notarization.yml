@@ -1,0 +1,80 @@
+name: Staple Accepted macOS Notarization
+run-name: Staple DMG from run ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Workflow run ID containing gui-qml-finalized-artifacts
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  staple:
+    name: Verify, staple, and package DMG
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - name: Validate source run ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Source run ID must be a positive integer" >&2
+            exit 1
+          fi
+
+      - name: Download signed DMG from failed run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gui-qml-finalized-artifacts
+          path: ${{ runner.temp }}/notary-recovery-source
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Staple and validate DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dmg="$RUNNER_TEMP/notary-recovery-source/Bitcoin-QML-signet-arm64.dmg"
+          final_dir="$RUNNER_TEMP/notary-recovery-final"
+          final_dmg="$final_dir/Bitcoin-QML-signet-arm64.dmg"
+
+          test -f "$source_dmg"
+          codesign --verify --verbose=4 "$source_dmg"
+          hdiutil verify "$source_dmg"
+
+          mkdir -p "$final_dir"
+          cp "$source_dmg" "$final_dmg"
+          xcrun stapler staple "$final_dmg"
+          xcrun stapler validate "$final_dmg"
+          codesign --verify --verbose=4 "$final_dmg"
+          hdiutil verify "$final_dmg"
+          spctl --assess --type open --context context:primary-signature \
+            --verbose=4 "$final_dmg"
+
+          final_hash="$(shasum -a 256 "$final_dmg" | awk '{print $1}')"
+          printf '%s  %s\n' "$final_hash" "$(basename "$final_dmg")" \
+            > "$final_dir/SHA256SUMS"
+
+          {
+            echo "### Stapled notarized DMG"
+            echo
+            echo "- Source run: \`$SOURCE_RUN_ID\`"
+            echo "- Artifact: \`stapled-macos-dmg-$GITHUB_RUN_ID\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload stapled DMG and checksum
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: stapled-macos-dmg-${{ github.run_id }}
+          path: ${{ runner.temp }}/notary-recovery-final
+          if-no-files-found: error
+          retention-days: 14

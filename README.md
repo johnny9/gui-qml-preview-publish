@@ -146,6 +146,21 @@ uploads the JSON response. For a completed submission, it also retrieves and
 uploads Apple's notarization log. It uses only the three API-key secrets and
 never uploads the decoded private key.
 
+Once a timed-out submission becomes `Accepted`, recover its matching signed
+DMG with `staple-macos-notarization.yml`. Provide the failed workflow run ID
+that contains `gui-qml-finalized-artifacts`:
+
+```sh
+gh workflow run staple-macos-notarization.yml \
+  -f source_run_id=28752610546
+```
+
+This workflow uses no Apple secrets: `stapler` retrieves the ticket associated
+with the exact signed DMG and fails if Apple has not accepted it. The workflow
+verifies the source and stapled images, performs the Gatekeeper-style check,
+and uploads a `stapled-macos-dmg-<run-id>` artifact containing only the
+finalized DMG and its post-staple `SHA256SUMS`.
+
 The protected job has `contents: write`; the build job has only
 `contents: read`. Neither workflow is triggered by `pull_request` or
 `pull_request_target`. Once a manual run has passed, add the scheduled trigger
