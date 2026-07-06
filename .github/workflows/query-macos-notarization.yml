@@ -1,0 +1,118 @@
+name: Query macOS Notarization
+run-name: Query notarization ${{ inputs.submission_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: Apple notarization submission UUID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  query:
+    name: Query Apple notary service
+    runs-on: macos-15
+    timeout-minutes: 10
+    environment: release-signing
+    env:
+      SUBMISSION_ID: ${{ inputs.submission_id }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+      APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
+    steps:
+      - name: Validate submission ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$SUBMISSION_ID" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "Submission ID must be a UUID" >&2
+            exit 1
+          fi
+
+      - name: Decode notary API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_dir="$RUNNER_TEMP/notary-query-key"
+          result_dir="$RUNNER_TEMP/notary-query-results"
+          authkey_path="$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+
+          mkdir -p "$key_dir" "$result_dir"
+          printf '%s' "$APPLE_API_PRIVATE_KEY_BASE64" | base64 -D > "$authkey_path"
+          chmod 600 "$authkey_path"
+          grep -q -- 'BEGIN PRIVATE KEY' "$authkey_path"
+
+          echo "APPLE_AUTHKEY_PATH=$authkey_path" >> "$GITHUB_ENV"
+          echo "RESULT_DIR=$result_dir" >> "$GITHUB_ENV"
+
+      - name: Query submission status
+        id: query
+        shell: bash
+        run: |
+          set -euo pipefail
+          info_path="$RESULT_DIR/info.json"
+          error_path="$RESULT_DIR/info.stderr.txt"
+
+          set +e
+          xcrun notarytool info "$SUBMISSION_ID" \
+            --key "$APPLE_AUTHKEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --no-progress \
+            --output-format json \
+            > "$info_path" 2> "$error_path"
+          return_code=$?
+          set -e
+
+          if [[ -s "$info_path" ]]; then
+            cat "$info_path"
+          fi
+          if [[ -s "$error_path" ]]; then
+            cat "$error_path" >&2
+          fi
+          if [[ $return_code -ne 0 ]]; then
+            exit "$return_code"
+          fi
+
+          status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("status", ""))' "$info_path")"
+          if [[ -z "$status" ]]; then
+            echo "Apple returned no notarization status" >&2
+            exit 1
+          fi
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Apple notarization query"
+            echo
+            echo "- Submission: \`$SUBMISSION_ID\`"
+            echo "- Status: **$status**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fetch completed submission log
+        if: steps.query.outputs.status != 'In Progress'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun notarytool log "$SUBMISSION_ID" "$RESULT_DIR/log.json" \
+            --key "$APPLE_AUTHKEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID"
+          cat "$RESULT_DIR/log.json"
+
+      - name: Upload query results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: notary-query-${{ github.run_id }}
+          path: ${{ runner.temp }}/notary-query-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove decoded notary API key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/notary-query-key/AuthKey_${APPLE_API_KEY_ID}.p8"

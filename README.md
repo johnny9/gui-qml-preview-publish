@@ -132,6 +132,20 @@ notarize, staple, or upload an artifact.
 3. The signed DMG and post-staple `SHA256SUMS` replace the assets on the
    `nightly` prerelease.
 
+`query-macos-notarization.yml` manually queries an existing Apple submission
+without rebuilding or resubmitting the DMG. Supply the submission UUID in the
+Actions form, or dispatch it with GitHub CLI:
+
+```sh
+gh workflow run query-macos-notarization.yml \
+  -f submission_id=9de58f49-f5e7-4649-80d3-d3e9c9ba050b
+```
+
+After `release-signing` approval, the workflow prints the current status and
+uploads the JSON response. For a completed submission, it also retrieves and
+uploads Apple's notarization log. It uses only the three API-key secrets and
+never uploads the decoded private key.
+
 The protected job has `contents: write`; the build job has only
 `contents: read`. Neither workflow is triggered by `pull_request` or
 `pull_request_target`. Once a manual run has passed, add the scheduled trigger
