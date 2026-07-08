@@ -9,21 +9,21 @@ class ManifestTest(unittest.TestCase):
 
         self.assertEqual(
             manifest.source.commit,
-            "e5a893c991a3d7779b4d30c8765b76c623fa0b89",
+            "25e056671840ce1ae1d6db6307d20d2b1f68e445",
         )
         self.assertEqual(
             manifest.source.bitcoin_commit,
-            "6574cb40869b96b9ffc79c19dc8f4e467d60f321",
+            "dc282ff31d1cc97507530a541d9cec8a8f6a6ef4",
         )
         self.assertEqual(
             manifest.source.repository,
-            "https://github.com/johnny9/BitcoinCoreAppDevelopment.git",
+            "https://github.com/johnny9/gui-qml.git",
         )
         self.assertEqual(
             manifest.source.reference,
-            "https://github.com/johnny9/BitcoinCoreAppDevelopment/tree/qt6",
+            "https://github.com/johnny9/gui-qml/tree/v31",
         )
-        self.assertEqual(manifest.source.fetch_ref, "refs/heads/qt6")
+        self.assertEqual(manifest.source.fetch_ref, "refs/heads/v31")
         self.assertEqual(manifest.build.display_version, manifest.source.commit[:12])
         self.assertEqual(manifest.linux.host, "x86_64-pc-linux-gnu")
         self.assertEqual(manifest.linux.architecture, "x86_64")

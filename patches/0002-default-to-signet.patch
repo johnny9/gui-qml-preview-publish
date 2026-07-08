@@ -6,7 +6,7 @@ Make signet the default chain when no explicit network is selected. Explicit
 selections keep their existing precedence.
 
 diff --git a/src/chainparamsbase.cpp b/src/chainparamsbase.cpp
-index d816d1a..104499d 100644
+index f62e455..829d670 100644
 --- a/src/chainparamsbase.cpp
 +++ b/src/chainparamsbase.cpp
 @@ -13,7 +13,7 @@
@@ -17,12 +17,12 @@ index d816d1a..104499d 100644
 +    argsman.AddArg("-chain=<chain>", "Use the chain <chain> (default: signet). Allowed values: " LIST_CHAIN_NAMES, ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
      argsman.AddArg("-regtest", "Enter regression test mode, which uses a special chain in which blocks can be solved instantly. "
                   "This is intended for regression testing tools and app development. Equivalent to -chain=regtest.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);
-     argsman.AddArg("-testactivationheight=name@height.", "Set the activation height of 'name' (segwit, bip34, dersig, cltv, csv). (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+     argsman.AddArg("-testactivationheight=name@height.", "Set the activation height of 'name' (segwit, bip34, dersig, cltv, csv). (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
 diff --git a/src/common/args.cpp b/src/common/args.cpp
-index 5c8589c..2376473 100644
+index cfd36e1..23c0840 100644
 --- a/src/common/args.cpp
 +++ b/src/common/args.cpp
-@@ -848,7 +848,7 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
+@@ -952,7 +952,7 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
      if (fSigNet) return ChainType::SIGNET;
      if (fTestNet) return ChainType::TESTNET;
      if (fTestNet4) return ChainType::TESTNET4;
@@ -32,10 +32,10 @@ index 5c8589c..2376473 100644
  
  bool ArgsManager::UseDefaultSection(const std::string& arg) const
 diff --git a/src/common/args.h b/src/common/args.h
-index ea4e173..b93d1d1 100644
+index 0a3195f..6598c35 100644
 --- a/src/common/args.h
 +++ b/src/common/args.h
-@@ -340,14 +340,14 @@ protected:
+@@ -358,14 +358,14 @@ public:
  
      /**
       * Returns the appropriate chain type from the program arguments.
@@ -43,7 +43,7 @@ index ea4e173..b93d1d1 100644
 +     * @return ChainType::SIGNET by default; raises runtime error if an invalid
       * combination, or unknown chain is given.
       */
-     ChainType GetChainType() const;
+     ChainType GetChainType() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
  
      /**
       * Returns the appropriate chain type string from the program arguments.
@@ -51,12 +51,12 @@ index ea4e173..b93d1d1 100644
 +     * @return ChainType::SIGNET string by default; raises runtime error if an
       * invalid combination is given.
       */
-     std::string GetChainTypeString() const;
+     std::string GetChainTypeString() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
 diff --git a/src/test/argsman_tests.cpp b/src/test/argsman_tests.cpp
-index e91ae5e..85a072f 100644
+index da0d684..efea982 100644
 --- a/src/test/argsman_tests.cpp
 +++ b/src/test/argsman_tests.cpp
-@@ -658,10 +658,10 @@ BOOST_AUTO_TEST_CASE(util_GetChainTypeString)
+@@ -728,10 +728,10 @@ BOOST_AUTO_TEST_CASE(util_GetChainTypeString)
      std::string error;
  
      BOOST_CHECK(test_args.ParseParameters(0, argv_testnet4, error));

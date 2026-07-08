@@ -6,10 +6,10 @@ version. Keep Bitcoin Core's own release and P2P version behavior unchanged
 when the override is absent.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 8661d8764..414af7b50 100644
+index bd4519e..c61ab11 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -34,6 +34,7 @@ find_package(Libevent 2.1.8 MODULE REQUIRED)
+@@ -33,6 +33,7 @@ find_package(Qt 6.2 MODULE REQUIRED
  find_package(QRencode MODULE REQUIRED)
  
  option(ENABLE_TEST_AUTOMATION "Enable test automation bridge for QML UI testing" OFF)
@@ -17,7 +17,7 @@ index 8661d8764..414af7b50 100644
  
  # Do not build any executable targets from bitcoin submodule
  set(BUILD_BENCH OFF)
-@@ -88,6 +89,9 @@ target_compile_definitions(bitcoinqml
+@@ -92,6 +93,9 @@ target_compile_definitions(bitcoinqml
      QT_NO_KEYWORDS
      QT_USE_QSTRINGBUILDER
  )
@@ -28,7 +28,7 @@ index 8661d8764..414af7b50 100644
    target_compile_definitions(bitcoinqml PUBLIC ENABLE_TEST_AUTOMATION)
  endif()
 diff --git a/qml/models/nodemodel.h b/qml/models/nodemodel.h
-index 07190ea47..019ee7117 100644
+index 7fdab7e..0c82bde 100644
 --- a/qml/models/nodemodel.h
 +++ b/qml/models/nodemodel.h
 @@ -71,7 +71,14 @@ public:
@@ -47,4 +47,3 @@ index 07190ea47..019ee7117 100644
      int numPeers() const { return m_num_peers; }
      void setNumPeers(int new_num);
      int numInboundPeers() const { return m_num_inbound_peers; }
-

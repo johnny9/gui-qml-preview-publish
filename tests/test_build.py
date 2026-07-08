@@ -21,10 +21,10 @@ class BuildCommandTest(unittest.TestCase):
     def test_detects_utf16_qstring_literal_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / "app"
-            binary.write_bytes(b"prefix" + "e5a893c991a3".encode("utf-16le") + b"suffix")
+            binary.write_bytes(b"prefix" + "25e056671840".encode("utf-16le") + b"suffix")
 
-            self.assertTrue(_contains_display_version(binary, "e5a893c991a3"))
-            self.assertFalse(_contains_display_version(binary, "6574cb40869b"))
+            self.assertTrue(_contains_display_version(binary, "25e056671840"))
+            self.assertFalse(_contains_display_version(binary, "dc282ff31d1c"))
 
     def test_detects_missing_static_qml_plugins(self) -> None:
         all_symbols = "\n".join(
@@ -95,7 +95,7 @@ class BuildCommandTest(unittest.TestCase):
         self.assertIn("-DBUILD_GUI=ON", command)
         self.assertIn("-DENABLE_WALLET=ON", command)
         self.assertIn("-DENABLE_IPC=OFF", command)
-        self.assertIn("-DGUI_QML_BUILD_VERSION=e5a893c991a3", command)
+        self.assertIn("-DGUI_QML_BUILD_VERSION=25e056671840", command)
         self.assertTrue(
             any(value.endswith("aarch64-apple-darwin24.6.0/toolchain.cmake") for value in command)
         )
