@@ -112,14 +112,16 @@ def _release_body(manifest: Manifest) -> str:
     generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     return "\n".join(
         [
-            "Automated signed and notarized macOS preview.",
+            "Automated macOS and Linux previews.",
             "",
             f"- source ref: {manifest.source.reference}",
             f"- source commit: `{manifest.source.commit}`",
             f"- Bitcoin Core commit: `{manifest.source.bitcoin_commit}`",
             "- default network: signet",
-            f"- architecture: {manifest.build.architecture}",
+            f"- macOS architecture: {manifest.build.architecture}",
             f"- minimum macOS: {manifest.build.minimum_macos}",
+            f"- Linux architecture: {manifest.linux.architecture}",
+            "- Linux format: raw unsigned depends-built executable",
             f"- generated: {generated}",
             "",
             "This is experimental preview software. Do not use it with mainnet funds.",
@@ -177,20 +179,24 @@ def _assert_mutable_nightly(release: dict[str, Any]) -> None:
         )
 
 
-def _release_assets(layout: Layout, manifest: Manifest) -> tuple[Path, Path]:
+def _release_assets(layout: Layout, manifest: Manifest) -> tuple[Path, Path, Path]:
     dmg = layout.dmg(manifest)
+    linux_binary = layout.linux_binary(manifest)
     checksums = layout.artifacts / "SHA256SUMS"
-    for asset in (dmg, checksums):
+    for asset in (dmg, linux_binary, checksums):
         if not asset.is_file():
             raise PublisherError(f"Release asset is missing: {asset}")
-    expected = f"{_sha256_file(dmg)}  {dmg.name}\n"
+    expected = "".join(
+        f"{_sha256_file(asset)}  {asset.name}\n"
+        for asset in (dmg, linux_binary)
+    )
     try:
         actual = checksums.read_text(encoding="utf-8")
     except OSError as error:
         raise PublisherError(f"Cannot read release checksums: {error}") from error
     if actual != expected:
-        raise PublisherError("SHA256SUMS does not exactly match the finalized DMG")
-    return dmg, checksums
+        raise PublisherError("SHA256SUMS does not exactly match the release artifacts")
+    return dmg, linux_binary, checksums
 
 
 def _list_assets(
@@ -300,7 +306,7 @@ def publish_nightly(layout: Layout, manifest: Manifest) -> str:
     release_payload: dict[str, Any] = {
         "tag_name": tag,
         "target_commitish": release_config.commit,
-        "name": "gui-qml macOS nightly",
+        "name": "gui-qml nightly previews",
         "body": _release_body(manifest),
         "draft": False,
         "prerelease": True,
@@ -317,7 +323,7 @@ def publish_nightly(layout: Layout, manifest: Manifest) -> str:
     if not isinstance(upload_url, str) or not upload_url:
         raise PublisherError("GitHub release response did not contain upload_url")
 
-    # Keep the currently published assets intact until both replacements have
+    # Keep the currently published assets intact until all replacements have
     # uploaded and their GitHub-computed digests match the local files.
     _cleanup_staged_assets(client, repository_path, release_id)
     current_assets = _list_assets(client, repository_path, release_id)

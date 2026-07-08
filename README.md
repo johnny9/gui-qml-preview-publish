@@ -1,10 +1,11 @@
-# Bitcoin Core App macOS preview publisher
+# Bitcoin Core App preview publisher
 
-This repository builds an Apple-silicon macOS preview of Bitcoin Core App from
-the `qt6` branch of
+This repository builds Apple-silicon macOS and x86-64 Linux previews of Bitcoin
+Core App from the `qt6` branch of
 [johnny9/BitcoinCoreAppDevelopment](https://github.com/johnny9/BitcoinCoreAppDevelopment/tree/qt6).
-The preview is packaged as `Bitcoin-QML.app`, defaults to signet, and reports
-the pinned source commit as its development version.
+Both previews use the same pinned source and patches, default to signet, and
+report the pinned source commit as their development version. The macOS preview
+is packaged as `Bitcoin-QML.app`; the Linux release asset is the raw executable.
 
 `config/release.toml` pins the source commit, Bitcoin Core submodule commit,
 depends patch digest, and patched-tree digests. The GitHub Actions clone URL is
@@ -16,7 +17,7 @@ patches are checked in under `patches/`; see `patches/README.md` for scope.
 The signing/notarization design and its operating constraints are in
 [`docs/macos-signing-notarization-workflow-plan.md`](docs/macos-signing-notarization-workflow-plan.md).
 
-## Unsigned build
+## macOS build
 
 The pinned Qt 6 source produces a native, thin `arm64` executable with a
 macOS 14.0 deployment target. Run the build on Apple silicon with Python 3.11
@@ -48,6 +49,34 @@ The checkout stage fetches `refs/heads/qt6` and refuses to continue unless it
 resolves to the pinned commit. It verifies the Bitcoin Core submodule and
 depends patch before applying the local distribution patches. A reused work
 directory with unreviewed source changes is rejected.
+
+## Linux build
+
+The Linux preview is a native `x86_64-pc-linux-gnu` depends build on Ubuntu
+24.04. Qt, QML, and the other depends-managed libraries are linked statically;
+the publisher rejects dynamic Qt, X11/XCB, font, QR, database, event, Boost,
+and ZeroMQ dependencies. The final release asset is the executable itself: it
+is not signed, archived, or placed in a package.
+
+Install the build tools and run the same pinned checkout and build stages:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  binutils bison build-essential cmake curl make ninja-build patch pkgconf \
+  python3 xz-utils
+python3 -m preview_publish --work-dir build-linux checkout --clean
+python3 -m preview_publish --work-dir build-linux build
+python3 -m preview_publish --work-dir build-linux export-linux
+```
+
+The exported file is
+`build-linux/artifacts/bitcoin-core-app-signet-x86_64-linux-gnu`. Downloads may
+need their executable bit restored before launch:
+
+```sh
+chmod +x bitcoin-core-app-signet-x86_64-linux-gnu
+```
 
 ## macOS packaging
 
@@ -121,16 +150,18 @@ notarize, staple, or upload an artifact.
 
 `macos-nightly-dmg.yml` is also manual-only until a signed run succeeds:
 
-1. A secret-free `macos-15` job builds the pinned source with depends and
-   uploads the validated unsigned app.
-2. A fresh `macos-15` job in `release-signing` downloads that app, applies a
+1. Secret-free `macos-15` and `ubuntu-24.04` jobs build the same pinned,
+   patched source with depends. The macOS job uploads the validated unsigned
+   app; the Linux job validates and uploads only the raw x86-64 executable.
+2. A fresh `macos-15` job in `release-signing` downloads both outputs, applies a
    timestamped Developer ID signature with hardened runtime, creates and
    signs the DMG, submits it to `notarytool` with the API key, reports the
    submission ID, waits for acceptance, staples it, and performs
    Gatekeeper-style validation. Submit and wait receipts plus the Apple log
    are preserved in the workflow artifact for diagnosis.
-3. The signed DMG and post-staple `SHA256SUMS` replace the assets on the
-   `nightly` prerelease.
+3. The signed DMG, unsigned Linux executable, and one post-staple
+   `SHA256SUMS` replace the assets on the `nightly` prerelease as a single
+   atomic update.
 
 `query-macos-notarization.yml` manually queries an existing Apple submission
 without rebuilding or resubmitting the DMG. Supply the submission UUID in the
@@ -161,7 +192,7 @@ verifies the source and stapled images, performs the Gatekeeper-style check,
 and uploads a `stapled-macos-dmg-<run-id>` artifact containing only the
 finalized DMG and its post-staple `SHA256SUMS`.
 
-The protected job has `contents: write`; the build job has only
+The protected job has `contents: write`; both build jobs have only
 `contents: read`. Neither workflow is triggered by `pull_request` or
 `pull_request_target`. Once a manual run has passed, add the scheduled trigger
 described in the workflow plan. Keep GitHub release immutability off for a

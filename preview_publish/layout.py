@@ -39,3 +39,6 @@ class Layout:
 
     def dmg(self, manifest: Manifest) -> Path:
         return self.artifacts / f"{manifest.application.artifact_basename}.dmg"
+
+    def linux_binary(self, manifest: Manifest) -> Path:
+        return self.artifacts / manifest.linux.artifact_name

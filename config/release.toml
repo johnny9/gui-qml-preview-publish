@@ -19,6 +19,11 @@ minimum_macos = "14.0"
 architecture = "arm64"
 display_version = "e5a893c991a3"
 
+[linux]
+host = "x86_64-pc-linux-gnu"
+architecture = "x86_64"
+artifact_name = "bitcoin-core-app-signet-x86_64-linux-gnu"
+
 [application]
 bundle_name = "Bitcoin-QML"
 display_name = "Bitcoin Core App Preview"

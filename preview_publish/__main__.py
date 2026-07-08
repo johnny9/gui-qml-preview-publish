@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .archive import archive_app, extract_app_archive
-from .build import build
+from .build import build, export_linux_binary
 from .config import load_manifest
 from .errors import PublisherError
 from .layout import Layout
@@ -18,7 +18,7 @@ from .source import checkout
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gui-qml-preview",
-        description="Build and package the pinned Bitcoin Core App macOS preview.",
+        description="Build the pinned Bitcoin Core App macOS and Linux previews.",
     )
     parser.add_argument("--manifest", type=Path, help="release TOML manifest")
     parser.add_argument("--work-dir", type=Path, default=Path("build"))
@@ -27,9 +27,14 @@ def _parser() -> argparse.ArgumentParser:
     checkout_parser = subparsers.add_parser("checkout", help="fetch and patch source")
     checkout_parser.add_argument("--clean", action="store_true")
 
-    build_parser = subparsers.add_parser("build", help="build depends and Bitcoin Core App")
+    build_parser = subparsers.add_parser(
+        "build", help="build depends and Bitcoin Core App for the current platform"
+    )
     build_parser.add_argument("--jobs", type=int)
 
+    subparsers.add_parser(
+        "export-linux", help="validate and export the raw Linux executable"
+    )
     subparsers.add_parser("package", help="create and deploy Bitcoin-QML.app")
     subparsers.add_parser("dmg", help="create an unsigned preview DMG")
     subparsers.add_parser(
@@ -66,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             checkout(layout, manifest, clean=args.clean)
         elif args.command == "build":
             build(layout, manifest, jobs=args.jobs)
+        elif args.command == "export-linux":
+            export_linux_binary(layout, manifest)
         elif args.command == "package":
             package(layout, manifest)
         elif args.command == "dmg":

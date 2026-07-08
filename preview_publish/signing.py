@@ -537,6 +537,17 @@ def check_credentials() -> None:
 
 
 def finalize(layout: Layout, manifest: Manifest) -> Path:
+    linux_binary = layout.linux_binary(manifest)
+    try:
+        linux_mode = linux_binary.lstat().st_mode
+    except OSError as error:
+        raise PublisherError(
+            f"Linux release executable is missing: {linux_binary}"
+        ) from error
+    if not stat.S_ISREG(linux_mode):
+        raise PublisherError(
+            f"Linux release executable is not a regular file: {linux_binary}"
+        )
     credentials = AppleCredentials.from_environment()
     app = layout.deployed_app(manifest)
     with TemporaryAppleKeychain(credentials, parent=layout.work) as signing:
@@ -545,7 +556,7 @@ def finalize(layout: Layout, manifest: Manifest) -> Path:
         sign_dmg(dmg, signing)
         notarize_dmg(dmg, layout, signing)
         staple_and_verify(dmg)
-    write_checksums(layout, (dmg,))
+    write_checksums(layout, (dmg, linux_binary))
     print(f"Finalized signed and notarized artifact: {dmg}")
     return dmg
 

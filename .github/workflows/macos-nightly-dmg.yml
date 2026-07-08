@@ -1,17 +1,18 @@
-name: macOS Nightly DMG
+name: Nightly Preview Release
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: nightly-macos-preview
+  group: nightly-preview-release
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  build-macos:
+    name: Build macOS preview
     runs-on: macos-15
     timeout-minutes: 360
     steps:
@@ -71,8 +72,76 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-linux:
+    name: Build Linux preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Configure build paths
+        run: |
+          echo "WORK_DIR=$RUNNER_TEMP/gui-qml-preview-build" >> "$GITHUB_ENV"
+          echo "PYTHONPYCACHEPREFIX=$RUNNER_TEMP/python-cache" >> "$GITHUB_ENV"
+
+      - name: Test publisher
+        run: python -m unittest discover -v
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils \
+            bison \
+            build-essential \
+            cmake \
+            curl \
+            make \
+            ninja-build \
+            patch \
+            pkgconf \
+            python3 \
+            xz-utils
+
+      - name: Fetch and patch reviewed source
+        run: python -m preview_publish --work-dir "$WORK_DIR" checkout --clean
+
+      - name: Restore depends cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/sources
+            ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/built
+          key: linux-x86_64-bitcoin-core-app-qt6-depends-${{ hashFiles('config/release.toml', 'patches/*.patch') }}
+          restore-keys: |
+            linux-x86_64-bitcoin-core-app-qt6-depends-
+
+      - name: Build with depends
+        run: python -m preview_publish --work-dir "$WORK_DIR" build
+
+      - name: Export raw Linux executable
+        run: python -m preview_publish --work-dir "$WORK_DIR" export-linux
+
+      - name: Upload Linux executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gui-qml-linux-binary
+          path: ${{ runner.temp }}/gui-qml-preview-build/artifacts/bitcoin-core-app-signet-x86_64-linux-gnu
+          if-no-files-found: error
+          retention-days: 7
+
   sign-and-publish:
-    needs: build
+    needs:
+      - build-macos
+      - build-linux
     runs-on: macos-15
     timeout-minutes: 180
     environment: release-signing
@@ -99,6 +168,17 @@ jobs:
         with:
           name: gui-qml-unsigned-app
           path: ${{ runner.temp }}/gui-qml-unsigned
+
+      - name: Download Linux executable
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gui-qml-linux-binary
+          path: ${{ runner.temp }}/gui-qml-preview-signing/artifacts
+
+      - name: Restore Linux executable mode
+        run: >-
+          chmod 0755
+          "$WORK_DIR/artifacts/bitcoin-core-app-signet-x86_64-linux-gnu"
 
       - name: Extract unsigned app
         run: >-

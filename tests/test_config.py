@@ -25,6 +25,12 @@ class ManifestTest(unittest.TestCase):
         )
         self.assertEqual(manifest.source.fetch_ref, "refs/heads/qt6")
         self.assertEqual(manifest.build.display_version, manifest.source.commit[:12])
+        self.assertEqual(manifest.linux.host, "x86_64-pc-linux-gnu")
+        self.assertEqual(manifest.linux.architecture, "x86_64")
+        self.assertEqual(
+            manifest.linux.artifact_name,
+            "bitcoin-core-app-signet-x86_64-linux-gnu",
+        )
         self.assertEqual(manifest.application.bundle_identifier, "org.bitcoincore.gui-qml.preview")
         self.assertEqual([patch.target for patch in manifest.patches], ["source", "bitcoin"])
 

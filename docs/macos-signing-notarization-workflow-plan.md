@@ -23,9 +23,9 @@ credential smoke test:
 - Notarization must use an App Store Connect API key (`.p8`).
 - The six named repository secrets below are the initial source of truth.
 - A protected `release-signing` environment is the target for release jobs.
-- The existing secret-free build job and isolated signing job remain a useful
-  security boundary. The implementation should adapt the publisher's existing
-  static-app package flow rather than introduce a second packaging system.
+- The secret-free macOS and Linux build jobs and isolated signing job remain a
+  useful security boundary. Linux exports only its raw executable; the
+  implementation should not introduce a second packaging system.
 
 ## Active depends-build source
 
@@ -35,7 +35,7 @@ GitHub Actions clone URL is HTTPS, as the hosted runner deliberately has no
 SSH deploy key for this source repository.
 
 The active ref is pinned in `config/release.toml` at
-`d63e9642c2cfbb5ee1abad80688fbac89597b61a`. It retains the verified Bitcoin
+`e5a893c991a3d7779b4d30c8765b76c623fa0b89`. It retains the verified Bitcoin
 submodule commit, depends patch, and post-patch source/tree hashes; applying
 the patches to this branch reproduced those pins before this workflow change.
 
@@ -142,7 +142,7 @@ chmod 600 "$APPLE_AUTHKEY_PATH"
 echo "APPLE_AUTHKEY_PATH=$APPLE_AUTHKEY_PATH" >> "$GITHUB_ENV"
 ```
 
-### 2. Signed nightly DMG workflow
+### 2. Nightly preview release workflow
 
 Implemented as `.github/workflows/macos-nightly-dmg.yml`; the old
 `nightly-macos.yml` workflow is replaced, so two workflows cannot publish the
@@ -150,9 +150,10 @@ same rolling nightly release.
 
 - Start with `workflow_dispatch` only; add the `0 5 * * *` schedule only after
   a manual signed/notarized run succeeds.
-- Use `macos-15` for build and signing jobs.
+- Use `macos-15` for the macOS build and signing jobs and `ubuntu-24.04` for
+  the x86-64 Linux depends build.
 - Use `environment: release-signing` for the signing/notarization job.
-- Keep unsigned building and protected signing in separate jobs/runners.
+- Keep both unsigned builds and protected signing in separate jobs/runners.
 - Use `contents: read` for artifact-only execution and `contents: write` only
   when the workflow updates the nightly release.
 - Never run a secrets-bearing job on `pull_request` or
@@ -173,8 +174,8 @@ dependencies support it.
 
 The final protected stage must:
 
-1. Build or download the verified unsigned application from the secret-free
-   job.
+1. Download the verified unsigned application and validated raw Linux
+   executable from the two secret-free jobs.
 2. Use the repository's existing packaging/deployment validation for
    `bitcoin-core-app` and the QML payload.
 3. Sign the application using the exact `APPLE_SIGNING_IDENTITY`, hardened
@@ -219,8 +220,9 @@ The final protected stage must:
    spctl -a -vvv -t open --context context:primary-signature "$DMG_PATH"
    ```
 
-7. Upload only the finalized DMG and checksums or update the nightly release.
-   Never upload the decoded P12, decoded P8, or their base64 values.
+7. Update the nightly release atomically with only the finalized DMG, raw
+   unsigned Linux executable, and their combined checksums. Never upload the
+   decoded P12, decoded P8, or their base64 values.
 
 ## Implementation acceptance criteria
 
@@ -229,6 +231,8 @@ The final protected stage must:
 - The protected release job has no Apple ID/app-specific-password dependency.
 - The released DMG is Developer ID signed, notarization is accepted, and the
   ticket is stapled and validated.
+- The released Linux asset is the validated x86-64 depends-built executable,
+  with no signing or packaging step.
 - The workflow remains fail-closed: missing, malformed, or mismatched
   credentials cannot yield an unsigned/ad-hoc release.
 - `actionlint`, the publisher's Python tests, and a workflow review pass.

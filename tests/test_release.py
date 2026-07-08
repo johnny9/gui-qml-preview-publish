@@ -13,6 +13,24 @@ from preview_publish.package import write_checksums
 from preview_publish.release import publish_nightly
 
 
+def write_release_assets(layout: Layout, manifest, dmg_contents: bytes) -> None:
+    layout.artifacts.mkdir(parents=True)
+    layout.dmg(manifest).write_bytes(dmg_contents)
+    layout.linux_binary(manifest).write_bytes(b"linux executable")
+    write_checksums(
+        layout,
+        (layout.dmg(manifest), layout.linux_binary(manifest)),
+    )
+
+
+def release_asset_names(layout: Layout, manifest) -> set[str]:
+    return {
+        layout.dmg(manifest).name,
+        layout.linux_binary(manifest).name,
+        "SHA256SUMS",
+    }
+
+
 class FakeGitHubClient:
     def __init__(self, _config):
         self.uploads = []
@@ -97,7 +115,11 @@ class ExistingReleaseClient(FakeGitHubClient):
         self.tag_exists = True
         self.assets = {
             1: {"id": 1, "name": "Bitcoin-QML-signet-arm64.dmg"},
-            2: {"id": 2, "name": "SHA256SUMS"},
+            2: {
+                "id": 2,
+                "name": "bitcoin-core-app-signet-x86_64-linux-gnu",
+            },
+            3: {"id": 3, "name": "SHA256SUMS"},
         }
 
 
@@ -151,7 +173,7 @@ class FailingFreshRenameClient(FakeGitHubClient):
 
 
 class ReleaseTest(unittest.TestCase):
-    def test_new_nightly_uploads_dmg_and_checksum(self) -> None:
+    def test_new_nightly_uploads_both_binaries_and_checksum(self) -> None:
         manifest = load_manifest()
         environment = {
             "GITHUB_TOKEN": "token",
@@ -161,9 +183,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"dmg")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"dmg")
             client = FakeGitHubClient(None)
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg"
@@ -172,11 +192,11 @@ class ReleaseTest(unittest.TestCase):
                 self.assertNotIn("GITHUB_TOKEN", os.environ)
 
         self.assertEqual(url, "https://github.test/release/nightly")
-        self.assertEqual(len(client.uploads), 2)
+        self.assertEqual(len(client.uploads), 3)
         self.assertTrue(all(call[0] == "POST" for call in client.uploads))
         self.assertEqual(
             set(asset["name"] for asset in client.assets.values()),
-            {layout.dmg(manifest).name, "SHA256SUMS"},
+            release_asset_names(layout, manifest),
         )
         self.assertTrue(
             any(
@@ -203,7 +223,7 @@ class ReleaseTest(unittest.TestCase):
 
         client_class.assert_not_called()
 
-    def test_existing_assets_survive_until_both_uploads_finish(self) -> None:
+    def test_existing_assets_survive_until_all_uploads_finish(self) -> None:
         manifest = load_manifest()
         environment = {
             "GITHUB_TOKEN": "token",
@@ -212,9 +232,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"replacement")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"replacement")
             client = ExistingReleaseClient(None)
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg"
@@ -223,9 +241,10 @@ class ReleaseTest(unittest.TestCase):
 
         self.assertNotIn(1, client.assets)
         self.assertNotIn(2, client.assets)
+        self.assertNotIn(3, client.assets)
         self.assertEqual(
             {asset["name"] for asset in client.assets.values()},
-            {layout.dmg(manifest).name, "SHA256SUMS"},
+            release_asset_names(layout, manifest),
         )
         self.assertTrue(
             any(
@@ -244,9 +263,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"replacement")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"replacement")
             client = FailingSecondUploadClient(None)
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg"
@@ -256,7 +273,7 @@ class ReleaseTest(unittest.TestCase):
 
         self.assertEqual(
             {asset["name"] for asset in client.assets.values()},
-            {layout.dmg(manifest).name, "SHA256SUMS"},
+            release_asset_names(layout, manifest),
         )
         self.assertFalse(client.release_draft)
 
@@ -269,9 +286,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"replacement")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"replacement")
             client = FailingHideClient(None)
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg"
@@ -279,7 +294,7 @@ class ReleaseTest(unittest.TestCase):
                 with self.assertRaises(PublisherError):
                     publish_nightly(layout, manifest)
 
-        self.assertEqual(set(client.assets), {1, 2})
+        self.assertEqual(set(client.assets), {1, 2, 3})
         self.assertTrue(
             all(
                 not asset["name"].startswith("gui-qml-upload-")
@@ -296,9 +311,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"replacement")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"replacement")
             client = FailingSecondRenameClient(None)
             with patch("preview_publish.release.verify_finalized_dmg"), patch(
                 "preview_publish.release.GitHubClient", return_value=client
@@ -316,7 +329,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertFalse(client.release_draft)
         self.assertEqual(
             {asset["name"] for asset in client.assets.values()},
-            {layout.dmg(manifest).name, "SHA256SUMS"},
+            release_asset_names(layout, manifest),
         )
         self.assertEqual(
             sum(
@@ -335,9 +348,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"first publication")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"first publication")
             client = FailingFreshRenameClient(None)
             with patch("preview_publish.release.verify_finalized_dmg"), patch(
                 "preview_publish.release.GitHubClient", return_value=client
@@ -356,7 +367,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertTrue(client.tag_exists)
         self.assertEqual(
             {asset["name"] for asset in client.assets.values()},
-            {layout.dmg(manifest).name, "SHA256SUMS"},
+            release_asset_names(layout, manifest),
         )
         self.assertEqual(
             sum(
@@ -375,9 +386,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"replacement")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"replacement")
             client = ExistingReleaseClient(None)
             client.release_immutable = True
             with patch.dict(os.environ, environment, clear=False), patch(
@@ -387,7 +396,7 @@ class ReleaseTest(unittest.TestCase):
                     publish_nightly(layout, manifest)
 
         self.assertEqual(client.uploads, [])
-        self.assertEqual(set(client.assets), {1, 2})
+        self.assertEqual(set(client.assets), {1, 2, 3})
 
     def test_unfinalized_dmg_make_no_api_calls(self) -> None:
         manifest = load_manifest()
@@ -398,9 +407,7 @@ class ReleaseTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             layout = Layout.create(Path(directory), manifest)
-            layout.artifacts.mkdir(parents=True)
-            layout.dmg(manifest).write_bytes(b"unsigned")
-            write_checksums(layout, (layout.dmg(manifest),))
+            write_release_assets(layout, manifest, b"unsigned")
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg",
                 side_effect=PublisherError("not finalized"),

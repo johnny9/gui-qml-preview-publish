@@ -41,6 +41,13 @@ class BuildConfig:
 
 
 @dataclass(frozen=True)
+class LinuxConfig:
+    host: str
+    architecture: str
+    artifact_name: str
+
+
+@dataclass(frozen=True)
 class ApplicationConfig:
     bundle_name: str
     display_name: str
@@ -65,6 +72,7 @@ class Manifest:
     root: Path
     source: SourceConfig
     build: BuildConfig
+    linux: LinuxConfig
     application: ApplicationConfig
     patches: tuple[PatchConfig, ...]
 
@@ -103,6 +111,7 @@ def load_manifest(path: Path | None = None) -> Manifest:
 
     source = _construct(SourceConfig, _table(document, "source"), "source")
     build = _construct(BuildConfig, _table(document, "build"), "build")
+    linux = _construct(LinuxConfig, _table(document, "linux"), "linux")
     application = _construct(
         ApplicationConfig, _table(document, "application"), "application"
     )
@@ -127,6 +136,10 @@ def load_manifest(path: Path | None = None) -> Manifest:
         raise PublisherError("build.display_version must be the pinned source short hash")
     if build.architecture not in {"arm64", "x86_64"}:
         raise PublisherError(f"Unsupported macOS architecture: {build.architecture}")
+    if linux.host != "x86_64-pc-linux-gnu" or linux.architecture != "x86_64":
+        raise PublisherError("The Linux preview must target x86_64-pc-linux-gnu")
+    if not linux.artifact_name or "/" in linux.artifact_name:
+        raise PublisherError("linux.artifact_name must be a non-empty filename")
     if "/" in application.bundle_name or not application.bundle_name:
         raise PublisherError("application.bundle_name must be a non-empty filename")
     if application.bundle_identifier != "org.bitcoincore.gui-qml.preview":
@@ -137,6 +150,7 @@ def load_manifest(path: Path | None = None) -> Manifest:
         root=root,
         source=source,
         build=build,
+        linux=linux,
         application=application,
         patches=patches,
     )

@@ -17,6 +17,7 @@ from preview_publish.signing import (
     TemporaryAppleKeychain,
     assert_static_bundle,
     cleanup_temporary_keychains,
+    finalize,
     notarize_dmg,
 )
 
@@ -127,6 +128,19 @@ class SigningTest(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(PublisherError):
                 AppleCredentials.from_environment()
+
+    @patch("preview_publish.signing.AppleCredentials.from_environment")
+    def test_finalize_requires_linux_executable_before_credentials(
+        self, credentials_mock
+    ) -> None:
+        manifest = load_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+
+            with self.assertRaisesRegex(PublisherError, "Linux release executable"):
+                finalize(layout, manifest)
+
+        credentials_mock.assert_not_called()
 
     @patch("preview_publish.signing.require_tool", return_value="security")
     @patch("preview_publish.signing.run")
