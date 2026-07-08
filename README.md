@@ -53,10 +53,12 @@ directory with unreviewed source changes is rejected.
 ## Linux build
 
 The Linux preview is a native `x86_64-pc-linux-gnu` depends build on Ubuntu
-24.04. Qt, QML, and the other depends-managed libraries are linked statically;
-the publisher rejects dynamic Qt, X11/XCB, font, QR, database, event, Boost,
-and ZeroMQ dependencies. The final release asset is the executable itself: it
-is not signed, archived, or placed in a package.
+24.04. Qt, QML, and most depends-managed libraries are linked statically.
+Bitcoin Core's Linux depends recipes intentionally link `fontconfig` and
+`freetype` dynamically, so the publisher permits those libraries and the
+standard Linux runtime while rejecting dynamic Qt, X11/XCB, QR, database,
+event, Boost, and ZeroMQ dependencies. The final release asset is the
+executable itself: it is not signed, archived, or placed in a package.
 
 Install the build tools and run the same pinned checkout and build stages:
 

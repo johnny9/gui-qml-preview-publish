@@ -19,16 +19,21 @@ STATIC_QML_PLUGIN_CLASSES = (
     "QmlSettingsPlugin",
 )
 
+# Bitcoin Core's Linux depends recipes deliberately build fontconfig and
+# freetype shared; everything else here is part of the standard C/C++ runtime.
 LINUX_ALLOWED_DYNAMIC_LIBRARIES = frozenset(
     {
         "libc.so.6",
         "libdl.so.2",
+        "libfontconfig.so.1",
+        "libfreetype.so.6",
         "libgcc_s.so.1",
         "libm.so.6",
         "libpthread.so.0",
         "librt.so.1",
         "libstdc++.so.6",
         "libutil.so.1",
+        "ld-linux-x86-64.so.2",
     }
 )
 

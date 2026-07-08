@@ -68,6 +68,36 @@ class BuildCommandTest(unittest.TestCase):
             with self.assertRaisesRegex(PublisherError, "libQt6Core"):
                 validate_linux_binary(binary, manifest)
 
+    @patch("preview_publish.build.require_tool", side_effect=lambda name: name)
+    @patch("preview_publish.build.output")
+    def test_linux_validation_accepts_depends_font_libraries(
+        self, output_mock, _require_tool
+    ) -> None:
+        manifest = load_manifest()
+        plugins = (*STATIC_QML_PLUGIN_CLASSES, "QXcbIntegrationPlugin")
+        output_mock.side_effect = [
+            "Class: ELF64\nMachine: Advanced Micro Devices X86-64\n",
+            "\n".join(
+                f"(NEEDED) Shared library: [{library}]"
+                for library in (
+                    "libfontconfig.so.1",
+                    "libfreetype.so.6",
+                    "libstdc++.so.6",
+                    "libc.so.6",
+                    "ld-linux-x86-64.so.2",
+                )
+            ),
+            "\n".join(f"qt_plugin_instance_{plugin}" for plugin in plugins),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "bitcoin-core-app"
+            binary.write_bytes(
+                b"ELF preview default: signet "
+                + manifest.build.display_version.encode("ascii")
+            )
+
+            validate_linux_binary(binary, manifest)
+
     @patch("preview_publish.build.platform.system", return_value="Linux")
     @patch("preview_publish.build.validate_linux_binary")
     def test_exports_raw_linux_executable(self, _validate, _system) -> None:
