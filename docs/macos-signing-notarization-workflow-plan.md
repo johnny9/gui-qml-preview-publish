@@ -155,7 +155,7 @@ same rolling nightly release.
 - Use `environment: release-signing` for the signing/notarization job.
 - Keep both unsigned builds and protected signing in separate jobs/runners.
 - Use `contents: read` for artifact-only execution and `contents: write` only
-  when the workflow updates the nightly release.
+  when the workflow creates the versioned release and updates Latest Preview.
 - Never run a secrets-bearing job on `pull_request` or
   `pull_request_target`.
 
@@ -220,9 +220,14 @@ The final protected stage must:
    spctl -a -vvv -t open --context context:primary-signature "$DMG_PATH"
    ```
 
-7. Update the nightly release atomically with only the finalized DMG, raw
-   unsigned Linux executable, and their combined checksums. Never upload the
-   decoded P12, decoded P8, or their base64 values.
+7. Create the `v0.0.<GITHUB_RUN_NUMBER>` prerelease as a draft, attach the
+   finalized DMG, raw unsigned Linux executable, and their combined checksums,
+   then publish it. Its title also records the pinned gui-qml hash and UTC
+   build date. Never move a published version tag or replace its assets.
+8. Atomically update the rolling `nightly` prerelease with the same three
+   assets and title it `Latest Preview` with the current version, source hash,
+   and build date. Never upload the decoded P12, decoded P8, or their base64
+   values.
 
 ## Implementation acceptance criteria
 
@@ -233,6 +238,9 @@ The final protected stage must:
   ticket is stapled and validated.
 - The released Linux asset is the validated x86-64 depends-built executable,
   with no signing or packaging step.
+- Every successful run creates one stable SemVer `0.0.<run-number>` prerelease
+  and updates the rolling Latest Preview prerelease with matching asset
+  digests.
 - The workflow remains fail-closed: missing, malformed, or mismatched
   credentials cannot yield an unsigned/ad-hoc release.
 - `actionlint`, the publisher's Python tests, and a workflow review pass.

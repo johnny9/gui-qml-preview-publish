@@ -10,7 +10,13 @@ from preview_publish.config import load_manifest
 from preview_publish.errors import PublisherError
 from preview_publish.layout import Layout
 from preview_publish.package import write_checksums
-from preview_publish.release import publish_nightly
+from preview_publish.release import (
+    GitHubReleaseConfig,
+    PreviewVersion,
+    _publish_versioned_release,
+    publish_nightly,
+    publish_releases,
+)
 
 
 def write_release_assets(layout: Layout, manifest, dmg_contents: bytes) -> None:
@@ -172,7 +178,198 @@ class FailingFreshRenameClient(FakeGitHubClient):
         return super().api(method, path, payload=payload, allow_status=allow_status)
 
 
+class VersionReleaseClient:
+    def __init__(self, _commit: str):
+        self.api_calls = []
+        self.uploads = []
+        self.assets = {}
+        self.next_asset_id = 200
+        self.release_exists = False
+        self.release_draft = True
+        self.tag_commit = None
+
+    def _release(self):
+        return {
+            "id": 84,
+            "tag_name": "v0.0.123",
+            "draft": self.release_draft,
+            "immutable": not self.release_draft,
+            "upload_url": "https://uploads.github.test/version{?name,label}",
+            "html_url": "https://github.test/release/v0.0.123",
+        }
+
+    def api(self, method, path, *, payload=None, allow_status=()):
+        self.api_calls.append((method, path, payload, allow_status))
+        if method == "GET" and path.endswith("/releases/tags/v0.0.123"):
+            if self.release_exists and not self.release_draft:
+                return 200, self._release()
+            return 404, {"message": "Not Found"}
+        if method == "GET" and path.endswith("/releases?per_page=100"):
+            return 200, [self._release()] if self.release_exists else []
+        if method == "POST" and path.endswith("/releases"):
+            self.release_exists = True
+            self.release_draft = bool(payload["draft"])
+            return 201, self._release()
+        if method == "GET" and path.endswith("/releases/84/assets?per_page=100"):
+            return 200, list(self.assets.values())
+        if method == "DELETE" and "/releases/assets/" in path:
+            self.assets.pop(int(path.rsplit("/", 1)[1]), None)
+            return 204, None
+        if method == "GET" and path.endswith("/git/ref/tags/v0.0.123"):
+            if self.tag_commit is None:
+                return 404, {"message": "Not Found"}
+            return 200, {"object": {"sha": self.tag_commit}}
+        if method == "POST" and path.endswith("/git/refs"):
+            self.tag_commit = payload["sha"]
+            return 201, {"ref": payload["ref"], "object": {"sha": self.tag_commit}}
+        if method == "PATCH" and path.endswith("/releases/84"):
+            self.release_draft = bool(payload["draft"])
+            return 200, self._release()
+        return 204, None
+
+    def request(self, method, url, **kwargs):
+        self.uploads.append((method, url, kwargs))
+        name = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["name"][0]
+        data = kwargs["data"]
+        asset = {
+            "id": self.next_asset_id,
+            "name": name,
+            "state": "uploaded",
+            "size": len(data),
+            "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        }
+        self.assets[self.next_asset_id] = asset
+        self.next_asset_id += 1
+        return 201, asset
+
+
 class ReleaseTest(unittest.TestCase):
+    def test_versioned_release_is_stable_and_idempotent(self) -> None:
+        manifest = load_manifest()
+        release_config = GitHubReleaseConfig(
+            token="token",
+            repository="owner/repository",
+            commit="a" * 40,
+            api_url="https://api.github.test",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            write_release_assets(layout, manifest, b"dmg")
+            assets = (
+                layout.dmg(manifest),
+                layout.linux_binary(manifest),
+                layout.artifacts / "SHA256SUMS",
+            )
+            client = VersionReleaseClient(release_config.commit)
+            with patch.dict(os.environ, {"GITHUB_RUN_NUMBER": "123"}, clear=False):
+                preview_version = PreviewVersion.from_environment()
+            first_url = _publish_versioned_release(
+                client,
+                "/repos/owner/repository",
+                release_config,
+                assets,
+                manifest,
+                preview_version,
+            )
+            second_url = _publish_versioned_release(
+                client,
+                "/repos/owner/repository",
+                release_config,
+                assets,
+                manifest,
+                preview_version,
+            )
+
+        self.assertEqual(first_url, "https://github.test/release/v0.0.123")
+        self.assertEqual(second_url, first_url)
+        self.assertEqual(preview_version.value, "0.0.123")
+        self.assertEqual(preview_version.tag, "v0.0.123")
+        self.assertEqual(len(client.uploads), 3)
+        self.assertEqual(client.tag_commit, release_config.commit)
+        self.assertFalse(client.release_draft)
+        create_release = next(
+            call
+            for call in client.api_calls
+            if call[0] == "POST" and call[1].endswith("/releases")
+        )
+        self.assertIn("macOS and Linux", create_release[2]["name"])
+
+    def test_versioned_release_refuses_moved_tag(self) -> None:
+        manifest = load_manifest()
+        release_config = GitHubReleaseConfig(
+            token="token",
+            repository="owner/repository",
+            commit="a" * 40,
+            api_url="https://api.github.test",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            write_release_assets(layout, manifest, b"dmg")
+            assets = (
+                layout.dmg(manifest),
+                layout.linux_binary(manifest),
+                layout.artifacts / "SHA256SUMS",
+            )
+            client = VersionReleaseClient(release_config.commit)
+            with patch.dict(os.environ, {"GITHUB_RUN_NUMBER": "123"}, clear=False):
+                version = PreviewVersion.from_environment()
+            _publish_versioned_release(
+                client,
+                "/repos/owner/repository",
+                release_config,
+                assets,
+                manifest,
+                version,
+            )
+            client.tag_commit = "b" * 40
+            with self.assertRaisesRegex(PublisherError, "different publisher commit"):
+                _publish_versioned_release(
+                    client,
+                    "/repos/owner/repository",
+                    release_config,
+                    assets,
+                    manifest,
+                    version,
+                )
+
+        self.assertEqual(len(client.uploads), 3)
+
+    def test_release_command_publishes_version_then_latest(self) -> None:
+        manifest = load_manifest()
+        environment = {
+            "GITHUB_TOKEN": "token",
+            "GITHUB_REPOSITORY": "owner/repository",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_RUN_NUMBER": "123",
+        }
+        events = []
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            write_release_assets(layout, manifest, b"dmg")
+            with patch.dict(os.environ, environment, clear=False), patch(
+                "preview_publish.release.verify_finalized_dmg"
+            ), patch("preview_publish.release.GitHubClient"), patch(
+                "preview_publish.release._publish_versioned_release",
+                side_effect=lambda *_args: events.append("versioned")
+                or "https://github.test/release/v0.0.123",
+            ) as versioned, patch(
+                "preview_publish.release._publish_latest_preview",
+                side_effect=lambda *_args: events.append("latest")
+                or "https://github.test/release/nightly",
+            ) as latest:
+                urls = publish_releases(layout, manifest)
+
+        self.assertEqual(
+            urls,
+            (
+                "https://github.test/release/v0.0.123",
+                "https://github.test/release/nightly",
+            ),
+        )
+        versioned.assert_called_once()
+        latest.assert_called_once()
+        self.assertEqual(events, ["versioned", "latest"])
+
     def test_new_nightly_uploads_both_binaries_and_checksum(self) -> None:
         manifest = load_manifest()
         environment = {

@@ -161,9 +161,23 @@ notarize, staple, or upload an artifact.
    submission ID, waits for acceptance, staples it, and performs
    Gatekeeper-style validation. Submit and wait receipts plus the Apple log
    are preserved in the workflow artifact for diagnosis.
-3. The signed DMG, unsigned Linux executable, and one post-staple
-   `SHA256SUMS` replace the assets on the `nightly` prerelease as a single
-   atomic update.
+3. Only after signing, notarization, stapling, and final verification succeed,
+   the publisher creates a versioned prerelease and updates the rolling Latest
+   Preview prerelease. Both releases attach the signed DMG, unsigned Linux
+   executable, and one post-staple `SHA256SUMS`.
+
+Each workflow run uses GitHub's monotonically increasing
+`GITHUB_RUN_NUMBER` as the SemVer patch component. For example, run 42 creates:
+
+- tag and version: `v0.0.42`
+- release title: `Bitcoin QML Preview v0.0.42 - macOS and Linux (25e056671840, 2026-07-10)`
+- rolling title: `Latest Preview - macOS and Linux - v0.0.42 (25e056671840, 2026-07-10)`
+
+The 12-character hash is the pinned gui-qml source commit and the date is UTC.
+The immutable version tag never moves. A rerun verifies an already-published
+version's tag and asset digests instead of replacing it. The rolling release
+continues to use the `nightly` tag for backward-compatible download URLs; its
+title, target commit, notes, and assets update to the newest successful build.
 
 `query-macos-notarization.yml` manually queries an existing Apple submission
 without rebuilding or resubmitting the DMG. Supply the submission UUID in the
@@ -198,5 +212,5 @@ The protected job has `contents: write`; both build jobs have only
 `contents: read`. Neither workflow is triggered by `pull_request` or
 `pull_request_target`. Once a manual run has passed, add the scheduled trigger
 described in the workflow plan. Keep GitHub release immutability off for a
-rolling `nightly` release, or change this publisher to create a unique release
-tag per build.
+rolling `nightly` release. The per-build `v0.0.<run-number>` releases are safe
+to make immutable because their tags and assets are never replaced.

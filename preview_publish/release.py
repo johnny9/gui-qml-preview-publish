@@ -34,12 +34,42 @@ class GitHubReleaseConfig:
         commit = os.environ.get("GITHUB_SHA", "")
         api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
         if not token:
-            raise PublisherError("GITHUB_TOKEN is required to publish the nightly release")
+            raise PublisherError("GITHUB_TOKEN is required to publish preview releases")
         if not re.fullmatch(r"[^/]+/[^/]+", repository):
             raise PublisherError("GITHUB_REPOSITORY must have owner/name form")
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise PublisherError("GITHUB_SHA must be a full lowercase Git SHA-1")
         return cls(token, repository, commit, api_url.rstrip("/"))
+
+
+@dataclass(frozen=True)
+class PreviewVersion:
+    build_number: int
+    built_at: datetime
+
+    @classmethod
+    def from_environment(cls) -> "PreviewVersion":
+        raw_build_number = os.environ.get("GITHUB_RUN_NUMBER", "")
+        if not re.fullmatch(r"[1-9][0-9]*", raw_build_number):
+            raise PublisherError(
+                "GITHUB_RUN_NUMBER must be a positive integer to publish previews"
+            )
+        return cls(
+            build_number=int(raw_build_number),
+            built_at=datetime.now(timezone.utc).replace(microsecond=0),
+        )
+
+    @property
+    def value(self) -> str:
+        return f"0.0.{self.build_number}"
+
+    @property
+    def tag(self) -> str:
+        return f"v{self.value}"
+
+    @property
+    def build_date(self) -> str:
+        return self.built_at.date().isoformat()
 
 
 class GitHubClient:
@@ -108,25 +138,45 @@ class GitHubClient:
         )
 
 
-def _release_body(manifest: Manifest) -> str:
-    generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    return "\n".join(
+def _release_body(
+    manifest: Manifest,
+    *,
+    version: PreviewVersion | None = None,
+    publisher_commit: str | None = None,
+) -> str:
+    generated = (
+        version.built_at
+        if version is not None
+        else datetime.now(timezone.utc).replace(microsecond=0)
+    )
+    details = [
+        "Automated macOS and Linux previews.",
+        "",
+    ]
+    if version is not None:
+        details.append(f"- preview version: `{version.value}`")
+    details.extend(
         [
-            "Automated macOS and Linux previews.",
-            "",
             f"- source ref: {manifest.source.reference}",
             f"- source commit: `{manifest.source.commit}`",
             f"- Bitcoin Core commit: `{manifest.source.bitcoin_commit}`",
+        ]
+    )
+    if publisher_commit is not None:
+        details.append(f"- publisher commit: `{publisher_commit}`")
+    details.extend(
+        [
             "- default network: signet",
             f"- macOS architecture: {manifest.build.architecture}",
             f"- minimum macOS: {manifest.build.minimum_macos}",
             f"- Linux architecture: {manifest.linux.architecture}",
             "- Linux format: raw unsigned depends-built executable",
-            f"- generated: {generated}",
+            f"- generated: {generated.isoformat()}",
             "",
             "This is experimental preview software. Do not use it with mainnet funds.",
         ]
     )
+    return "\n".join(details)
 
 
 def _upload_asset(
@@ -283,7 +333,9 @@ def _find_or_create_release(
         if isinstance(item, dict) and item.get("tag_name") == tag
     ]
     if len(matching) > 1:
-        raise PublisherError("Multiple nightly releases exist; manual cleanup is required")
+        raise PublisherError(
+            f"Multiple releases exist for {tag}; manual cleanup is required"
+        )
     if matching:
         return matching[0], not bool(matching[0].get("draft"))
 
@@ -292,22 +344,163 @@ def _find_or_create_release(
         "POST", f"{repository_path}/releases", payload=draft_payload
     )
     if create_status != 201:
-        raise PublisherError("GitHub did not create the draft nightly release")
+        raise PublisherError(f"GitHub did not create the draft release for {tag}")
     return _release_response(release), False
 
 
-def publish_nightly(layout: Layout, manifest: Manifest) -> str:
-    release_config = GitHubReleaseConfig.from_environment()
-    assets = _release_assets(layout, manifest)
-    verify_finalized_dmg(assets[0])
-    client = GitHubClient(release_config)
-    repository_path = f"/repos/{release_config.repository}"
+def _release_url(release: dict[str, Any]) -> str:
+    html_url = release.get("html_url", "")
+    return html_url if isinstance(html_url, str) else ""
+
+
+def _verify_existing_assets(
+    client: GitHubClient,
+    repository_path: str,
+    release_id: int,
+    assets: tuple[Path, Path, Path],
+) -> None:
+    existing_assets = _list_assets(client, repository_path, release_id)
+    by_name = {
+        asset["name"]: asset
+        for asset in existing_assets
+        if isinstance(asset.get("name"), str)
+    }
+    if len(existing_assets) != len(assets) or set(by_name) != {
+        asset.name for asset in assets
+    }:
+        raise PublisherError(
+            "The published version release has a different release asset set"
+        )
+    for asset in assets:
+        _verified_asset(by_name[asset.name], asset, asset.name)
+
+
+def _create_version_tag(
+    client: GitHubClient,
+    repository_path: str,
+    tag: str,
+    commit: str,
+) -> None:
+    status, response = client.api(
+        "GET",
+        f"{repository_path}/git/ref/tags/{tag}",
+        allow_status=(404,),
+    )
+    if status == 200:
+        tag_object = response.get("object") if isinstance(response, dict) else None
+        tagged_commit = tag_object.get("sha") if isinstance(tag_object, dict) else None
+        if tagged_commit != commit:
+            raise PublisherError(
+                f"Version tag {tag} already points to a different publisher commit"
+            )
+        return
+    create_status, _ = client.api(
+        "POST",
+        f"{repository_path}/git/refs",
+        payload={"ref": f"refs/tags/{tag}", "sha": commit},
+    )
+    if create_status != 201:
+        raise PublisherError(f"GitHub did not create version tag {tag}")
+
+
+def _publish_versioned_release(
+    client: GitHubClient,
+    repository_path: str,
+    release_config: GitHubReleaseConfig,
+    assets: tuple[Path, Path, Path],
+    manifest: Manifest,
+    version: PreviewVersion,
+) -> str:
+    source_hash = manifest.source.commit[:12]
+    release_payload: dict[str, Any] = {
+        "tag_name": version.tag,
+        "target_commitish": release_config.commit,
+        "name": (
+            f"Bitcoin QML Preview v{version.value} - macOS and Linux "
+            f"({source_hash}, {version.build_date})"
+        ),
+        "body": _release_body(
+            manifest,
+            version=version,
+            publisher_commit=release_config.commit,
+        ),
+        "draft": False,
+        "prerelease": True,
+        "make_latest": "false",
+    }
+    release, was_published = _find_or_create_release(
+        client, repository_path, version.tag, release_payload
+    )
+    release_id = release.get("id")
+    if not isinstance(release_id, int):
+        raise PublisherError("GitHub release response did not contain a numeric id")
+
+    if was_published:
+        _verify_existing_assets(client, repository_path, release_id, assets)
+        _create_version_tag(
+            client,
+            repository_path,
+            version.tag,
+            release_config.commit,
+        )
+        return _release_url(release)
+
+    if release.get("immutable") is True:
+        raise PublisherError(
+            f"Draft version release {version.tag} is unexpectedly immutable"
+        )
+    upload_url = release.get("upload_url")
+    if not isinstance(upload_url, str) or not upload_url:
+        raise PublisherError("GitHub release response did not contain upload_url")
+
+    for existing in _list_assets(client, repository_path, release_id):
+        _delete_asset(client, repository_path, existing)
+    for asset in assets:
+        _upload_asset(client, upload_url, asset, asset.name)
+
+    _create_version_tag(
+        client,
+        repository_path,
+        version.tag,
+        release_config.commit,
+    )
+    update_status, release = client.api(
+        "PATCH",
+        f"{repository_path}/releases/{release_id}",
+        payload=release_payload,
+    )
+    if update_status != 200:
+        raise PublisherError(
+            f"GitHub did not finalize version release {version.tag}"
+        )
+    return _release_url(_release_response(release))
+
+
+def _publish_latest_preview(
+    client: GitHubClient,
+    repository_path: str,
+    release_config: GitHubReleaseConfig,
+    assets: tuple[Path, Path, Path],
+    manifest: Manifest,
+    version: PreviewVersion | None = None,
+) -> str:
     tag = "nightly"
+    source_hash = manifest.source.commit[:12]
+    release_name = "Latest Preview - macOS and Linux"
+    if version is not None:
+        release_name = (
+            f"Latest Preview - macOS and Linux - v{version.value} "
+            f"({source_hash}, {version.build_date})"
+        )
     release_payload: dict[str, Any] = {
         "tag_name": tag,
         "target_commitish": release_config.commit,
-        "name": "gui-qml nightly previews",
-        "body": _release_body(manifest),
+        "name": release_name,
+        "body": _release_body(
+            manifest,
+            version=version,
+            publisher_commit=release_config.commit if version is not None else None,
+        ),
         "draft": False,
         "prerelease": True,
         "make_latest": "false",
@@ -384,8 +577,54 @@ def publish_nightly(layout: Layout, manifest: Manifest) -> str:
             "a new rolling tag before the next run."
         )
 
-    html_url = release.get("html_url", "")
-    if not isinstance(html_url, str):
-        html_url = ""
+    return _release_url(release)
+
+
+def _prepare_release(
+    layout: Layout, manifest: Manifest
+) -> tuple[GitHubReleaseConfig, tuple[Path, Path, Path]]:
+    release_config = GitHubReleaseConfig.from_environment()
+    assets = _release_assets(layout, manifest)
+    verify_finalized_dmg(assets[0])
+    return release_config, assets
+
+
+def publish_nightly(layout: Layout, manifest: Manifest) -> str:
+    release_config, assets = _prepare_release(layout, manifest)
+    client = GitHubClient(release_config)
+    repository_path = f"/repos/{release_config.repository}"
+    html_url = _publish_latest_preview(
+        client,
+        repository_path,
+        release_config,
+        assets,
+        manifest,
+    )
     print(f"Published nightly release: {html_url}")
     return html_url
+
+
+def publish_releases(layout: Layout, manifest: Manifest) -> tuple[str, str]:
+    version = PreviewVersion.from_environment()
+    release_config, assets = _prepare_release(layout, manifest)
+    client = GitHubClient(release_config)
+    repository_path = f"/repos/{release_config.repository}"
+    version_url = _publish_versioned_release(
+        client,
+        repository_path,
+        release_config,
+        assets,
+        manifest,
+        version,
+    )
+    latest_url = _publish_latest_preview(
+        client,
+        repository_path,
+        release_config,
+        assets,
+        manifest,
+        version,
+    )
+    print(f"Published version release {version.tag}: {version_url}")
+    print(f"Updated Latest Preview release: {latest_url}")
+    return version_url, latest_url

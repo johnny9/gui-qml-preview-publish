@@ -1,4 +1,4 @@
-name: Nightly Preview Release
+name: Preview Releases
 
 on:
   workflow_dispatch:
@@ -195,7 +195,7 @@ jobs:
           APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
         run: python -m preview_publish --work-dir "$WORK_DIR" finalize
 
-      - name: Publish nightly release
+      - name: Publish versioned and Latest Preview releases
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python -m preview_publish --work-dir "$WORK_DIR" release

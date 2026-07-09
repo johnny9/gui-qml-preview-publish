@@ -10,7 +10,7 @@ from .config import load_manifest
 from .errors import PublisherError
 from .layout import Layout
 from .package import create_dmg, package, write_checksums
-from .release import publish_nightly
+from .release import publish_releases
 from .signing import check_credentials, cleanup_temporary_keychains, finalize
 from .source import checkout
 
@@ -43,7 +43,9 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "finalize", help="sign, notarize, staple, and checksum the preview DMG"
     )
-    subparsers.add_parser("release", help="publish the finalized nightly release")
+    subparsers.add_parser(
+        "release", help="publish versioned and Latest Preview releases"
+    )
     subparsers.add_parser("cleanup", help="remove temporary Apple keychains")
 
     archive_parser = subparsers.add_parser(
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "finalize":
             finalize(layout, manifest)
         elif args.command == "release":
-            publish_nightly(layout, manifest)
+            publish_releases(layout, manifest)
         elif args.command == "cleanup":
             cleanup_temporary_keychains(layout.work)
         elif args.command == "archive":
