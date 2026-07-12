@@ -20,6 +20,9 @@ from .package import _sha256_file
 from .signing import verify_finalized_dmg
 
 
+ROLLING_RELEASE_TAG = "latest"
+
+
 @dataclass(frozen=True)
 class GitHubReleaseConfig:
     token: str = field(repr=False)
@@ -220,12 +223,12 @@ def _release_response(value: Any) -> dict[str, Any]:
     return value
 
 
-def _assert_mutable_nightly(release: dict[str, Any]) -> None:
+def _assert_mutable_rolling_release(release: dict[str, Any]) -> None:
     if release.get("immutable") is True:
         raise PublisherError(
-            "The nightly release is immutable and cannot be updated. Rolling nightlies "
+            "The rolling release is immutable and cannot be updated. Rolling releases "
             "require GitHub release immutability to be disabled before first publication; "
-            "after an immutable nightly exists, disable the setting and choose a new tag."
+            "after an immutable release exists, disable the setting and choose a new tag."
         )
 
 
@@ -297,7 +300,7 @@ def _upsert_tag(
             payload={"ref": f"refs/tags/{tag}", "sha": commit},
         )
         if create_status != 201:
-            raise PublisherError("GitHub did not create the nightly tag")
+            raise PublisherError(f"GitHub did not create the {tag} tag")
     else:
         update_status, _ = client.api(
             "PATCH",
@@ -305,7 +308,7 @@ def _upsert_tag(
             payload={"sha": commit, "force": True},
         )
         if update_status != 200:
-            raise PublisherError("GitHub did not update the nightly tag")
+            raise PublisherError(f"GitHub did not update the {tag} tag")
 
 
 def _find_or_create_release(
@@ -484,7 +487,7 @@ def _publish_latest_preview(
     manifest: Manifest,
     version: PreviewVersion | None = None,
 ) -> str:
-    tag = "nightly"
+    tag = ROLLING_RELEASE_TAG
     source_hash = manifest.source.commit[:12]
     release_name = "Latest Preview - macOS and Linux"
     if version is not None:
@@ -508,7 +511,7 @@ def _publish_latest_preview(
     release, was_published = _find_or_create_release(
         client, repository_path, tag, release_payload
     )
-    _assert_mutable_nightly(release)
+    _assert_mutable_rolling_release(release)
     release_id = release.get("id")
     if not isinstance(release_id, int):
         raise PublisherError("GitHub release response did not contain a numeric id")
@@ -541,7 +544,7 @@ def _publish_latest_preview(
             )
             if hide_status != 200 or not isinstance(hidden_release, dict):
                 raise PublisherError(
-                    "GitHub did not hide the nightly release for asset swap"
+                    "GitHub did not hide the rolling release for asset swap"
                 )
         except BaseException:
             _cleanup_staged_assets(client, repository_path, release_id)
@@ -568,12 +571,13 @@ def _publish_latest_preview(
         payload=release_payload,
     )
     if update_status != 200:
-        raise PublisherError("GitHub did not finalize the nightly release")
+        raise PublisherError("GitHub did not finalize the rolling release")
     release = _release_response(release)
     if release.get("immutable") is True:
         raise PublisherError(
-            "GitHub published this nightly as immutable. The assets are live, but future "
-            "updates cannot reuse the nightly tag; disable release immutability and choose "
+            "GitHub published this rolling release as immutable. The assets are live, but "
+            f"future updates cannot reuse the {tag} tag; disable release immutability "
+            "and choose "
             "a new rolling tag before the next run."
         )
 
@@ -600,7 +604,7 @@ def publish_nightly(layout: Layout, manifest: Manifest) -> str:
         assets,
         manifest,
     )
-    print(f"Published nightly release: {html_url}")
+    print(f"Published rolling release: {html_url}")
     return html_url
 
 

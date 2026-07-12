@@ -174,8 +174,8 @@ Each workflow run uses GitHub's monotonically increasing
 The 12-character hash is the pinned gui-qml source commit and the date is UTC.
 The immutable version tag never moves. A rerun verifies an already-published
 version's tag and asset digests instead of replacing it. The rolling release
-continues to use the `nightly` tag for backward-compatible download URLs; its
-title, target commit, notes, and assets update to the newest successful build.
+uses the `latest` tag for permanent download URLs; its title, target commit,
+notes, and assets update to the newest successful build.
 
 `query-macos-notarization.yml` manually queries an existing Apple submission
 without rebuilding or resubmitting the DMG. Supply the submission UUID in the
@@ -209,6 +209,6 @@ finalized DMG and its post-staple `SHA256SUMS`.
 The protected job has `contents: write`; both build jobs have only
 `contents: read`. Neither workflow is triggered by `pull_request` or
 `pull_request_target`. Once a manual run has passed, add the scheduled trigger
-described in the workflow plan. Keep GitHub release immutability off for a
-rolling `nightly` release. The per-build `v0.0.<run-number>` releases are safe
+described in the workflow plan. Keep GitHub release immutability off for the
+rolling `latest` release. The per-build `v0.0.<run-number>` releases are safe
 to make immutable because their tags and assets are never replaced.

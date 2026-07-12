@@ -51,16 +51,16 @@ class FakeGitHubClient:
     def _release(self):
         return {
             "id": 42,
-            "tag_name": "nightly",
+            "tag_name": "latest",
             "draft": self.release_draft,
             "immutable": self.release_immutable,
             "upload_url": "https://uploads.github.test/assets{?name,label}",
-            "html_url": "https://github.test/release/nightly",
+            "html_url": "https://github.test/release/latest",
         }
 
     def api(self, method, path, *, payload=None, allow_status=()):
         self.api_calls.append((method, path, payload, allow_status))
-        if method == "GET" and path.endswith("/releases/tags/nightly"):
+        if method == "GET" and path.endswith("/releases/tags/latest"):
             if self.release_exists and not self.release_draft:
                 return 200, self._release()
             return 404, {"message": "Not Found"}
@@ -68,9 +68,9 @@ class FakeGitHubClient:
             return 200, [self._release()] if self.release_exists else []
         if method == "GET" and "/assets?" in path:
             return 200, list(self.assets.values())
-        if method == "GET" and "/git/ref/tags/nightly" in path:
+        if method == "GET" and "/git/ref/tags/latest" in path:
             if self.tag_exists:
-                return 200, {"ref": "refs/tags/nightly"}
+                return 200, {"ref": "refs/tags/latest"}
             return 404, {"message": "Not Found"}
         if method == "POST" and path.endswith("/releases"):
             self.release_exists = True
@@ -92,9 +92,9 @@ class FakeGitHubClient:
         if method == "POST" and path.endswith("/git/refs"):
             self.tag_exists = True
             return 201, {"ref": payload["ref"]}
-        if method == "PATCH" and "/git/refs/tags/nightly" in path:
+        if method == "PATCH" and "/git/refs/tags/latest" in path:
             self.tag_exists = True
-            return 200, {"ref": "refs/tags/nightly"}
+            return 200, {"ref": "refs/tags/latest"}
         return 204, None
 
     def request(self, method, url, **kwargs):
@@ -355,7 +355,7 @@ class ReleaseTest(unittest.TestCase):
             ) as versioned, patch(
                 "preview_publish.release._publish_latest_preview",
                 side_effect=lambda *_args: events.append("latest")
-                or "https://github.test/release/nightly",
+                or "https://github.test/release/latest",
             ) as latest:
                 urls = publish_releases(layout, manifest)
 
@@ -363,14 +363,14 @@ class ReleaseTest(unittest.TestCase):
             urls,
             (
                 "https://github.test/release/v0.0.123",
-                "https://github.test/release/nightly",
+                "https://github.test/release/latest",
             ),
         )
         versioned.assert_called_once()
         latest.assert_called_once()
         self.assertEqual(events, ["versioned", "latest"])
 
-    def test_new_nightly_uploads_both_binaries_and_checksum(self) -> None:
+    def test_new_rolling_release_uploads_both_binaries_and_checksum(self) -> None:
         manifest = load_manifest()
         environment = {
             "GITHUB_TOKEN": "token",
@@ -388,7 +388,7 @@ class ReleaseTest(unittest.TestCase):
                 url = publish_nightly(layout, manifest)
                 self.assertNotIn("GITHUB_TOKEN", os.environ)
 
-        self.assertEqual(url, "https://github.test/release/nightly")
+        self.assertEqual(url, "https://github.test/release/latest")
         self.assertEqual(len(client.uploads), 3)
         self.assertTrue(all(call[0] == "POST" for call in client.uploads))
         self.assertEqual(
@@ -445,7 +445,7 @@ class ReleaseTest(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                method == "PATCH" and path.endswith("/git/refs/tags/nightly")
+                method == "PATCH" and path.endswith("/git/refs/tags/latest")
                 for method, path, _payload, _allowed in client.api_calls
             )
         )
@@ -574,7 +574,7 @@ class ReleaseTest(unittest.TestCase):
             1,
         )
 
-    def test_immutable_nightly_fails_before_asset_mutation(self) -> None:
+    def test_immutable_rolling_release_fails_before_asset_mutation(self) -> None:
         manifest = load_manifest()
         environment = {
             "GITHUB_TOKEN": "token",

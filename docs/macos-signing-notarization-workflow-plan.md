@@ -223,7 +223,7 @@ The final protected stage must:
    finalized DMG, raw unsigned Linux executable, and their combined checksums,
    then publish it. Its title also records the pinned gui-qml hash and UTC
    build date. Never move a published version tag or replace its assets.
-8. Atomically update the rolling `nightly` prerelease with the same three
+8. Atomically update the rolling `latest` prerelease with the same three
    assets and title it `Latest Preview` with the current version, source hash,
    and build date. Never upload the decoded P12, decoded P8, or their base64
    values.
