@@ -29,15 +29,14 @@ credential smoke test:
 
 ## Active depends-build source
 
-The signing workflow targets the `v31` branch of
-`git@github.com:johnny9/gui-qml.git`. The corresponding
-GitHub Actions clone URL is HTTPS, as the hosted runner deliberately has no
-SSH deploy key for this source repository.
+The signing workflow targets the `qt6` branch of
+`https://github.com/bitcoin-core/gui-qml.git`.
 
 The active ref is pinned in `config/release.toml` at
-`25e056671840ce1ae1d6db6307d20d2b1f68e445`. It retains the verified Bitcoin
-submodule commit, depends patch, and post-patch source/tree hashes; applying
-the patches to this branch reproduced those pins before this workflow change.
+`bcb89ac5f6593f0ae994ac1806d5393dbb19fcc7`. It retains the verified Bitcoin
+submodule commit, branch depends patch, and post-patch source/tree hashes;
+applying the patches to this branch reproduced those pins before this workflow
+change.
 
 ## Goal
 

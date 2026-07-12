@@ -6,7 +6,7 @@ version. Keep Bitcoin Core's own release and P2P version behavior unchanged
 when the override is absent.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index bd4519e..c61ab11 100644
+index 288ef25..8c169b9 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -33,6 +33,7 @@ find_package(Qt 6.2 MODULE REQUIRED
@@ -17,7 +17,7 @@ index bd4519e..c61ab11 100644
  
  # Do not build any executable targets from bitcoin submodule
  set(BUILD_BENCH OFF)
-@@ -92,6 +93,9 @@ target_compile_definitions(bitcoinqml
+@@ -98,6 +99,9 @@ target_compile_definitions(bitcoinqml
      QT_NO_KEYWORDS
      QT_USE_QSTRINGBUILDER
  )

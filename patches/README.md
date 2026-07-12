@@ -1,7 +1,7 @@
 # Preview source patches
 
-These patches are applied to the pinned `johnny9/gui-qml:v31` checkout after
-the branch's own depends patch. The version patch targets gui-qml itself; the
+These patches are applied to the pinned `bitcoin-core/gui-qml:qt6` checkout
+after the branch's own depends patch. The version patch targets gui-qml itself; the
 network-default patch targets its `bitcoin` submodule:
 
 1. `0001-use-gui-qml-commit-for-version.patch` adds a build-time override for the
@@ -11,5 +11,5 @@ network-default patch targets its `bitcoin` submodule:
    signet. Explicit command-line and configuration network selections still win.
 
 The release manifest pins the gui-qml commit, Bitcoin Core submodule commit,
-and branch depends-patch digest. Updating `v31` requires reviewing its new head
+and branch depends-patch digest. Updating `qt6` requires reviewing its new head
 and then updating those pins deliberately.

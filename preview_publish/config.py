@@ -155,7 +155,7 @@ def load_manifest(path: Path | None = None) -> Manifest:
         patches=patches,
     )
     for relative in (source.depends_patch, *(item.path for item in patches)):
-        # The PR-owned depends patch lives in the future checkout, not this repo.
+        # The branch-owned depends patch lives in the future checkout, not this repo.
         if relative == source.depends_patch:
             continue
         if not manifest.repository_path(relative).is_file():

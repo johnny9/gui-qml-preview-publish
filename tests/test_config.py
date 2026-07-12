@@ -9,7 +9,7 @@ class ManifestTest(unittest.TestCase):
 
         self.assertEqual(
             manifest.source.commit,
-            "25e056671840ce1ae1d6db6307d20d2b1f68e445",
+            "bcb89ac5f6593f0ae994ac1806d5393dbb19fcc7",
         )
         self.assertEqual(
             manifest.source.bitcoin_commit,
@@ -17,13 +17,21 @@ class ManifestTest(unittest.TestCase):
         )
         self.assertEqual(
             manifest.source.repository,
-            "https://github.com/johnny9/gui-qml.git",
+            "https://github.com/bitcoin-core/gui-qml.git",
         )
         self.assertEqual(
             manifest.source.reference,
-            "https://github.com/johnny9/gui-qml/tree/v31",
+            "https://github.com/bitcoin-core/gui-qml/tree/qt6",
         )
-        self.assertEqual(manifest.source.fetch_ref, "refs/heads/v31")
+        self.assertEqual(manifest.source.fetch_ref, "refs/heads/qt6")
+        self.assertEqual(
+            manifest.source.depends_patch,
+            "patches/depends-Add-Qt-Qml-and-Qt-Quick-modules.patch",
+        )
+        self.assertEqual(
+            manifest.source.depends_patch_sha256,
+            "19e3ba90f0d1d41978e99ff1da5fa0a737f3a715bd6d94be03cea423934bf8dc",
+        )
         self.assertEqual(manifest.build.display_version, manifest.source.commit[:12])
         self.assertEqual(manifest.linux.host, "x86_64-pc-linux-gnu")
         self.assertEqual(manifest.linux.architecture, "x86_64")

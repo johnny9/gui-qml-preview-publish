@@ -1,15 +1,15 @@
 schema_version = 1
 
 [source]
-repository = "https://github.com/johnny9/gui-qml.git"
-reference = "https://github.com/johnny9/gui-qml/tree/v31"
-fetch_ref = "refs/heads/v31"
-commit = "25e056671840ce1ae1d6db6307d20d2b1f68e445"
+repository = "https://github.com/bitcoin-core/gui-qml.git"
+reference = "https://github.com/bitcoin-core/gui-qml/tree/qt6"
+fetch_ref = "refs/heads/qt6"
+commit = "bcb89ac5f6593f0ae994ac1806d5393dbb19fcc7"
 bitcoin_commit = "dc282ff31d1cc97507530a541d9cec8a8f6a6ef4"
 depends_patch = "patches/depends-Add-Qt-Qml-and-Qt-Quick-modules.patch"
-depends_patch_sha256 = "6a8d4a8c3222c2fca258b5cd15eea7701a64c9ff4bfb9ecf2148a39949d03dd8"
-patched_source_diff_sha256 = "710dd185d0d43b300703b5bd0154e07635d4472dd560e461d8d5788209003cb5"
-patched_bitcoin_diff_sha256 = "17715ef316938e665f3107de5633c476ebfa1b4dcd6fe0c13e6b04ca1159b3bb"
+depends_patch_sha256 = "19e3ba90f0d1d41978e99ff1da5fa0a737f3a715bd6d94be03cea423934bf8dc"
+patched_source_diff_sha256 = "cac4d7dfd8e1599357d1b0c2a06ff01b460a4bc72e03a0ee7850796dc1bfe8d8"
+patched_bitcoin_diff_sha256 = "a0b33e1a97a283f76932e170a4fb0d424b905aee26b72ffe06ba3baede96a217"
 
 [build]
 build_type = "Release"
@@ -17,7 +17,7 @@ build_directory = "build-depends"
 target = "bitcoin-core-app"
 minimum_macos = "14.0"
 architecture = "arm64"
-display_version = "25e056671840"
+display_version = "bcb89ac5f659"
 
 [linux]
 host = "x86_64-pc-linux-gnu"

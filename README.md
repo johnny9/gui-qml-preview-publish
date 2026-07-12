@@ -2,17 +2,15 @@
 
 This repository builds Apple-silicon macOS and x86-64 Linux previews of Bitcoin
 Core App from the
-[`v31` branch of `johnny9/gui-qml`](https://github.com/johnny9/gui-qml/tree/v31).
+[`qt6` branch of `bitcoin-core/gui-qml`](https://github.com/bitcoin-core/gui-qml/tree/qt6).
 Both previews use the same pinned source and patches, default to signet, and
 report the pinned source commit as their development version. The macOS preview
 is packaged as `Bitcoin-QML.app`; the Linux release asset is the raw executable.
 
 `config/release.toml` pins the source commit, Bitcoin Core submodule commit,
-depends patch digest, and patched-tree digests. The GitHub Actions clone URL is
-HTTPS even though the source is also available as
-`git@github.com:johnny9/gui-qml.git`: hosted runners do not
-receive an SSH deploy key for this source repository. The small distribution
-patches are checked in under `patches/`; see `patches/README.md` for scope.
+branch depends-patch digest, and patched-tree digests. The GitHub Actions clone
+URL is HTTPS. The small distribution patches are checked in under `patches/`;
+see `patches/README.md` for scope.
 
 The signing/notarization design and its operating constraints are in
 [`docs/macos-signing-notarization-workflow-plan.md`](docs/macos-signing-notarization-workflow-plan.md).
@@ -45,10 +43,10 @@ Outputs stay under the chosen work directory:
 - `build/artifacts/Bitcoin-QML-signet-arm64.dmg`
 - `build/artifacts/SHA256SUMS`
 
-The checkout stage fetches `refs/heads/v31` and refuses to continue unless it
+The checkout stage fetches `refs/heads/qt6` and refuses to continue unless it
 resolves to the pinned commit. It verifies the Bitcoin Core submodule and
-depends patch before applying the local distribution patches. A reused work
-directory with unreviewed source changes is rejected.
+branch depends patch before applying the local distribution patches. A reused
+work directory with unreviewed source changes is rejected.
 
 ## Linux build
 

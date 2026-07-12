@@ -58,10 +58,10 @@ def _verify_depends_patch(path: Path, expected_sha256: str) -> None:
     try:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError as error:
-        raise PublisherError(f"Cannot read PR depends patch {path}: {error}") from error
+        raise PublisherError(f"Cannot read branch depends patch {path}: {error}") from error
     if digest != expected_sha256:
         raise PublisherError(
-            f"PR depends patch digest is {digest}, expected {expected_sha256}"
+            f"Branch depends patch digest is {digest}, expected {expected_sha256}"
         )
 
 
