@@ -593,7 +593,7 @@ def _prepare_release(
     return release_config, assets
 
 
-def publish_nightly(layout: Layout, manifest: Manifest) -> str:
+def publish_latest(layout: Layout, manifest: Manifest) -> str:
     release_config, assets = _prepare_release(layout, manifest)
     client = GitHubClient(release_config)
     repository_path = f"/repos/{release_config.repository}"

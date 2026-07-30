@@ -9,7 +9,8 @@ by itself.
 
 Use `macos-15` for every new GitHub Actions macOS job. GitHub has announced
 that macOS 14 images begin deprecation on July 6, 2026 and become unsupported
-on November 2, 2026. The first implementation must remain manual-only.
+on November 2, 2026. The release workflow began manual-only; its protected
+signing boundary is retained now that upstream polling is enabled.
 
 `macos-15` is currently GitHub's arm64 M1 runner label; `macos-15-intel` is
 the separate Intel label. The pinned `qt6` source's own depends workflow uses
@@ -17,7 +18,7 @@ native `macos-15`, so this publisher intentionally retains its thin `arm64`
 artifact rather than introducing an unvalidated x86_64 build.
 
 The implementation uses `.github/workflows/macos-nightly-dmg.yml` for the
-manual release workflow and `.github/workflows/test-macos-signing.yml` for its
+release workflow and `.github/workflows/test-macos-signing.yml` for its
 credential smoke test:
 
 - Notarization must use an App Store Connect API key (`.p8`).
@@ -32,17 +33,18 @@ credential smoke test:
 The signing workflow targets the `qt6` branch of
 `https://github.com/bitcoin-core/gui-qml.git`.
 
-The active ref is pinned in `config/release.toml` at
+Manual runs pin the active ref in `config/release.toml` at
 `bcb89ac5f6593f0ae994ac1806d5393dbb19fcc7`. It retains the verified Bitcoin
 submodule commit, branch depends patch, and post-patch source/tree hashes;
 applying the patches to this branch reproduced those pins before this workflow
-change.
+change. Scheduled runs detect the current `qt6` head and derive the same exact
+pins into a per-run manifest before either build starts.
 
 ## Goal
 
 Build the Bitcoin QML macOS package, sign it with an Apple Developer ID,
-notarize it, staple the ticket, and publish a signed DMG artifact or nightly
-release:
+notarize it, staple the ticket, and publish a signed DMG artifact or update the
+rolling Latest Preview release:
 
 ```text
 checkout repository
@@ -55,7 +57,7 @@ checkout repository
 -> sign the DMG
 -> notarize the DMG
 -> staple the DMG
--> upload artifact or update nightly release
+-> upload artifact or update Latest Preview
 ```
 
 For this repository, packaging is currently performed by `preview_publish` and
@@ -141,15 +143,20 @@ chmod 600 "$APPLE_AUTHKEY_PATH"
 echo "APPLE_AUTHKEY_PATH=$APPLE_AUTHKEY_PATH" >> "$GITHUB_ENV"
 ```
 
-### 2. Nightly preview release workflow
+### 2. Qt6 preview release workflow
 
-Implemented as `.github/workflows/macos-nightly-dmg.yml`; the old
-`nightly-macos.yml` workflow is replaced, so two workflows cannot publish the
-same rolling nightly release.
+Implemented as `.github/workflows/macos-nightly-dmg.yml`. Its legacy filename
+is retained to avoid risking a new workflow identity or resetting its
+run-number sequence; it publishes only the rolling `latest` release.
 
-- Start with `workflow_dispatch` only; add the `0 5 * * *` schedule only after
-  a manual signed/notarized run succeeds.
-- Use `macos-15` for the macOS build and signing jobs and `ubuntu-24.04` for
+- Retain `workflow_dispatch` for deliberate builds of the checked-in pin.
+- Poll `qt6` at 05:17 and 17:17 UTC and skip the build jobs when the rolling
+  `latest` release already records that source commit.
+- For a detected change, generate and validate an exact per-run manifest,
+  including the Bitcoin Core submodule, depends patch, and patched-tree
+  digests. Fail closed if the branch moves or a distribution patch stops
+  applying.
+- Use `macos-15` for the macOS build and signing jobs and `ubuntu-22.04` for
   the x86-64 Linux depends build.
 - Use `environment: release-signing` for the signing/notarization job.
 - Keep both unsigned builds and protected signing in separate jobs/runners.
@@ -257,7 +264,7 @@ security find-identity -v -p codesigning
 ```
 
 Confirm the six secrets with `gh secret list`, use `macos-15`, and run the
-smoke test before enabling the full nightly workflow. The older Big Sur
+smoke test before enabling the full preview workflow. The older Big Sur
 MacBook is for credential export and inspection only; build, signing,
 notarization, and stapling run on GitHub's macOS runner.
 

@@ -51,7 +51,7 @@ work directory with unreviewed source changes is rejected.
 ## Linux build
 
 The Linux preview is a native `x86_64-pc-linux-gnu` depends build on Ubuntu
-24.04. Qt, QML, and most depends-managed libraries are linked statically.
+22.04. Qt, QML, and most depends-managed libraries are linked statically.
 Bitcoin Core's Linux depends recipes intentionally link `fontconfig` and
 `freetype` dynamically, so the publisher permits those libraries and the
 standard Linux runtime while rejecting dynamic Qt, X11/XCB, QR, database,
@@ -148,18 +148,28 @@ Developer ID identity into a temporary keychain, checks the exact identity,
 and confirms `notarytool` exists. It does not build, sign a distributable,
 notarize, staple, or upload an artifact.
 
-`macos-nightly-dmg.yml` is also manual-only until a signed run succeeds:
+`macos-nightly-dmg.yml` supports manual releases and polls the upstream `qt6`
+branch at 05:17 and 17:17 UTC. The legacy filename is retained only to avoid
+risking a new workflow identity or resetting its run-number sequence; the
+publisher uses only the rolling `latest` tag. Because GitHub does not emit
+cross-repository push events to this repository, the lightweight preparation
+job compares the branch head with the source commit recorded in `latest`. It
+skips both builds when that commit is already published.
 
-1. Secret-free `macos-15` and `ubuntu-24.04` jobs build the same pinned,
+1. For a scheduled change, the secret-free preparation job fetches the detected
+   branch head, derives its Bitcoin Core submodule and patch digests, and
+   uploads an exact per-run manifest. A manual run instead copies the reviewed
+   `config/release.toml` pin unchanged.
+2. Secret-free `macos-15` and `ubuntu-22.04` jobs build the same pinned,
    patched source with depends. The macOS job uploads the validated unsigned
    app; the Linux job validates and uploads only the raw x86-64 executable.
-2. A fresh `macos-15` job in `release-signing` downloads both outputs, applies a
+3. A fresh `macos-15` job in `release-signing` downloads both outputs, applies a
    timestamped Developer ID signature with hardened runtime, creates and
    signs the DMG, submits it to `notarytool` with the API key, reports the
    submission ID, waits for acceptance, staples it, and performs
    Gatekeeper-style validation. Submit and wait receipts plus the Apple log
    are preserved in the workflow artifact for diagnosis.
-3. Only after signing, notarization, stapling, and final verification succeed,
+4. Only after signing, notarization, stapling, and final verification succeed,
    the publisher creates a versioned prerelease and updates the rolling Latest
    Preview prerelease. Both releases attach the signed DMG, unsigned Linux
    executable, and one post-staple `SHA256SUMS`.
@@ -208,7 +218,9 @@ finalized DMG and its post-staple `SHA256SUMS`.
 
 The protected job has `contents: write`; both build jobs have only
 `contents: read`. Neither workflow is triggered by `pull_request` or
-`pull_request_target`. Once a manual run has passed, add the scheduled trigger
-described in the workflow plan. Keep GitHub release immutability off for the
-rolling `latest` release. The per-build `v0.0.<run-number>` releases are safe
-to make immutable because their tags and assets are never replaced.
+`pull_request_target`. The scheduled preparation job also has only
+`contents: read`; it fails closed if the branch moves during preparation or a
+local distribution patch no longer applies. Keep GitHub release immutability
+off for the rolling `latest` release. The per-build `v0.0.<run-number>`
+releases are safe to make immutable because their tags and assets are never
+replaced.

@@ -14,7 +14,7 @@ from preview_publish.release import (
     GitHubReleaseConfig,
     PreviewVersion,
     _publish_versioned_release,
-    publish_nightly,
+    publish_latest,
     publish_releases,
 )
 
@@ -385,7 +385,7 @@ class ReleaseTest(unittest.TestCase):
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg"
             ), patch("preview_publish.release.GitHubClient", return_value=client):
-                url = publish_nightly(layout, manifest)
+                url = publish_latest(layout, manifest)
                 self.assertNotIn("GITHUB_TOKEN", os.environ)
 
         self.assertEqual(url, "https://github.test/release/latest")
@@ -416,7 +416,7 @@ class ReleaseTest(unittest.TestCase):
                 "preview_publish.release.GitHubClient"
             ) as client_class:
                 with self.assertRaises(PublisherError):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         client_class.assert_not_called()
 
@@ -434,7 +434,7 @@ class ReleaseTest(unittest.TestCase):
             with patch.dict(os.environ, environment, clear=False), patch(
                 "preview_publish.release.verify_finalized_dmg"
             ), patch("preview_publish.release.GitHubClient", return_value=client):
-                publish_nightly(layout, manifest)
+                publish_latest(layout, manifest)
 
         self.assertNotIn(1, client.assets)
         self.assertNotIn(2, client.assets)
@@ -466,7 +466,7 @@ class ReleaseTest(unittest.TestCase):
                 "preview_publish.release.verify_finalized_dmg"
             ), patch("preview_publish.release.GitHubClient", return_value=client):
                 with self.assertRaises(PublisherError):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         self.assertEqual(
             {asset["name"] for asset in client.assets.values()},
@@ -489,7 +489,7 @@ class ReleaseTest(unittest.TestCase):
                 "preview_publish.release.verify_finalized_dmg"
             ), patch("preview_publish.release.GitHubClient", return_value=client):
                 with self.assertRaises(PublisherError):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         self.assertEqual(set(client.assets), {1, 2, 3})
         self.assertTrue(
@@ -515,13 +515,13 @@ class ReleaseTest(unittest.TestCase):
             ):
                 with patch.dict(os.environ, environment, clear=False):
                     with self.assertRaises(PublisherError):
-                        publish_nightly(layout, manifest)
+                        publish_latest(layout, manifest)
 
                 self.assertTrue(client.release_draft)
 
                 client.fail_rename = False
                 with patch.dict(os.environ, environment, clear=False):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         self.assertFalse(client.release_draft)
         self.assertEqual(
@@ -552,13 +552,13 @@ class ReleaseTest(unittest.TestCase):
             ):
                 with patch.dict(os.environ, environment, clear=False):
                     with self.assertRaises(PublisherError):
-                        publish_nightly(layout, manifest)
+                        publish_latest(layout, manifest)
 
                 self.assertTrue(client.release_draft)
 
                 client.fail_rename = False
                 with patch.dict(os.environ, environment, clear=False):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         self.assertFalse(client.release_draft)
         self.assertTrue(client.tag_exists)
@@ -590,7 +590,7 @@ class ReleaseTest(unittest.TestCase):
                 "preview_publish.release.verify_finalized_dmg"
             ), patch("preview_publish.release.GitHubClient", return_value=client):
                 with self.assertRaisesRegex(PublisherError, "immutable"):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         self.assertEqual(client.uploads, [])
         self.assertEqual(set(client.assets), {1, 2, 3})
@@ -610,7 +610,7 @@ class ReleaseTest(unittest.TestCase):
                 side_effect=PublisherError("not finalized"),
             ), patch("preview_publish.release.GitHubClient") as client_class:
                 with self.assertRaises(PublisherError):
-                    publish_nightly(layout, manifest)
+                    publish_latest(layout, manifest)
 
         client_class.assert_not_called()
 

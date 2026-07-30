@@ -10,9 +10,11 @@ from .config import load_manifest
 from .errors import PublisherError
 from .layout import Layout
 from .package import create_dmg, package, write_checksums
+from .refresh import refresh_manifest
 from .release import publish_releases
 from .signing import check_credentials, cleanup_temporary_keychains, finalize
 from .source import checkout
+from .trigger import source_status, write_github_output
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -26,6 +28,17 @@ def _parser() -> argparse.ArgumentParser:
 
     checkout_parser = subparsers.add_parser("checkout", help="fetch and patch source")
     checkout_parser.add_argument("--clean", action="store_true")
+
+    status_parser = subparsers.add_parser(
+        "source-status", help="compare the source branch with Latest Preview"
+    )
+    status_parser.add_argument("--github-output", type=Path, required=True)
+
+    refresh_parser = subparsers.add_parser(
+        "refresh-manifest", help="create an exact manifest for a detected source head"
+    )
+    refresh_parser.add_argument("--source-commit", required=True)
+    refresh_parser.add_argument("--output", type=Path, required=True)
 
     build_parser = subparsers.add_parser(
         "build", help="build depends and Bitcoin Core App for the current platform"
@@ -71,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
         layout = Layout.create(args.work_dir, manifest)
         if args.command == "checkout":
             checkout(layout, manifest, clean=args.clean)
+        elif args.command == "source-status":
+            status = source_status(manifest)
+            write_github_output(args.github_output, status)
+            state = "changed" if status.should_publish else "already published"
+            print(f"Qt6 source {status.commit}: {state}")
+        elif args.command == "refresh-manifest":
+            refresh_manifest(layout, manifest, args.source_commit, args.output)
         elif args.command == "build":
             build(layout, manifest, jobs=args.jobs)
         elif args.command == "export-linux":

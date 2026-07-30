@@ -2,17 +2,76 @@ name: Preview Releases
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "17 5,17 * * *"
 
 concurrency:
-  group: nightly-preview-release
+  group: preview-release
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  prepare:
+    name: Detect Qt6 source change
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    outputs:
+      should_publish: ${{ steps.source.outputs.should_publish }}
+      source_commit: ${{ steps.source.outputs.source_commit }}
+    steps:
+      - name: Checkout publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Test publisher
+        run: python -m unittest discover -v
+
+      - name: Select source
+        id: source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            python -m preview_publish source-status \
+              --github-output "$GITHUB_OUTPUT"
+          else
+            cp config/release.toml "$RUNNER_TEMP/release.toml"
+            SOURCE_COMMIT="$(python -c \
+              'from preview_publish.config import load_manifest; print(load_manifest().source.commit)')"
+            echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pin detected source and patch digests
+        if: github.event_name == 'schedule' && steps.source.outputs.should_publish == 'true'
+        run: >-
+          python -m preview_publish
+          --work-dir "$RUNNER_TEMP/gui-qml-preview-prepare"
+          refresh-manifest
+          --source-commit "${{ steps.source.outputs.source_commit }}"
+          --output "$RUNNER_TEMP/release.toml"
+
+      - name: Upload exact release manifest
+        if: steps.source.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gui-qml-release-manifest
+          path: ${{ runner.temp }}/release.toml
+          if-no-files-found: error
+          retention-days: 7
+
   build-macos:
     name: Build macOS preview
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
     runs-on: macos-15
     timeout-minutes: 360
     steps:
@@ -29,7 +88,14 @@ jobs:
       - name: Configure build paths
         run: |
           echo "WORK_DIR=$RUNNER_TEMP/gui-qml-preview-build" >> "$GITHUB_ENV"
+          echo "MANIFEST=$RUNNER_TEMP/gui-qml-release-manifest/release.toml" >> "$GITHUB_ENV"
           echo "PYTHONPYCACHEPREFIX=$RUNNER_TEMP/python-cache" >> "$GITHUB_ENV"
+
+      - name: Download exact release manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gui-qml-release-manifest
+          path: ${{ runner.temp }}/gui-qml-release-manifest
 
       - name: Test publisher
         run: python -m unittest discover -v
@@ -39,8 +105,10 @@ jobs:
           brew install bison cmake make ninja pkgconf python
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
 
-      - name: Fetch and patch reviewed source
-        run: python -m preview_publish --work-dir "$WORK_DIR" checkout --clean
+      - name: Fetch and patch exact source
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" checkout --clean
 
       - name: Restore depends cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -48,20 +116,25 @@ jobs:
           path: |
             ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/sources
             ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/built
-          key: ${{ runner.os }}-${{ runner.arch }}-bitcoin-core-app-qt6-depends-${{ hashFiles('config/release.toml', 'patches/*.patch') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-bitcoin-core-app-qt6-depends-${{ needs.prepare.outputs.source_commit }}-${{ hashFiles('patches/*.patch') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-bitcoin-core-app-qt6-depends-
 
       - name: Build with depends
-        run: python -m preview_publish --work-dir "$WORK_DIR" build
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" build
 
       - name: Package unsigned app
-        run: python -m preview_publish --work-dir "$WORK_DIR" package
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" package
 
       - name: Archive unsigned app
         run: |
           mkdir -p "$RUNNER_TEMP/gui-qml-unsigned"
-          python -m preview_publish --work-dir "$WORK_DIR" archive \
+          python -m preview_publish --manifest "$MANIFEST" \
+            --work-dir "$WORK_DIR" archive \
             --output "$RUNNER_TEMP/gui-qml-unsigned/unsigned-app.tar.gz"
 
       - name: Upload unsigned app for isolated signing
@@ -74,7 +147,9 @@ jobs:
 
   build-linux:
     name: Build Linux preview
-    runs-on: ubuntu-24.04
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-22.04
     timeout-minutes: 360
     steps:
       - name: Checkout publisher
@@ -90,7 +165,14 @@ jobs:
       - name: Configure build paths
         run: |
           echo "WORK_DIR=$RUNNER_TEMP/gui-qml-preview-build" >> "$GITHUB_ENV"
+          echo "MANIFEST=$RUNNER_TEMP/gui-qml-release-manifest/release.toml" >> "$GITHUB_ENV"
           echo "PYTHONPYCACHEPREFIX=$RUNNER_TEMP/python-cache" >> "$GITHUB_ENV"
+
+      - name: Download exact release manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gui-qml-release-manifest
+          path: ${{ runner.temp }}/gui-qml-release-manifest
 
       - name: Test publisher
         run: python -m unittest discover -v
@@ -111,8 +193,10 @@ jobs:
             python3 \
             xz-utils
 
-      - name: Fetch and patch reviewed source
-        run: python -m preview_publish --work-dir "$WORK_DIR" checkout --clean
+      - name: Fetch and patch exact source
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" checkout --clean
 
       - name: Restore depends cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -120,15 +204,19 @@ jobs:
           path: |
             ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/sources
             ${{ runner.temp }}/gui-qml-preview-build/source/bitcoin/depends/built
-          key: linux-x86_64-bitcoin-core-app-qt6-depends-${{ hashFiles('config/release.toml', 'patches/*.patch') }}
+          key: ubuntu-22.04-linux-x86_64-bitcoin-core-app-qt6-depends-${{ needs.prepare.outputs.source_commit }}-${{ hashFiles('patches/*.patch') }}
           restore-keys: |
-            linux-x86_64-bitcoin-core-app-qt6-depends-
+            ubuntu-22.04-linux-x86_64-bitcoin-core-app-qt6-depends-
 
       - name: Build with depends
-        run: python -m preview_publish --work-dir "$WORK_DIR" build
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" build
 
       - name: Export raw Linux executable
-        run: python -m preview_publish --work-dir "$WORK_DIR" export-linux
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" export-linux
 
       - name: Upload Linux executable
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -140,8 +228,10 @@ jobs:
 
   sign-and-publish:
     needs:
+      - prepare
       - build-macos
       - build-linux
+    if: needs.prepare.outputs.should_publish == 'true'
     runs-on: macos-15
     timeout-minutes: 180
     environment: release-signing
@@ -161,7 +251,14 @@ jobs:
       - name: Configure signing paths
         run: |
           echo "WORK_DIR=$RUNNER_TEMP/gui-qml-preview-signing" >> "$GITHUB_ENV"
+          echo "MANIFEST=$RUNNER_TEMP/gui-qml-release-manifest/release.toml" >> "$GITHUB_ENV"
           echo "PYTHONPYCACHEPREFIX=$RUNNER_TEMP/python-cache" >> "$GITHUB_ENV"
+
+      - name: Download exact release manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gui-qml-release-manifest
+          path: ${{ runner.temp }}/gui-qml-release-manifest
 
       - name: Download unsigned app
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -182,7 +279,8 @@ jobs:
 
       - name: Extract unsigned app
         run: >-
-          python -m preview_publish --work-dir "$WORK_DIR" extract
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" extract
           --archive "$RUNNER_TEMP/gui-qml-unsigned/unsigned-app.tar.gz"
 
       - name: Sign, notarize, and staple DMG
@@ -193,12 +291,16 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
-        run: python -m preview_publish --work-dir "$WORK_DIR" finalize
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" finalize
 
       - name: Publish versioned and Latest Preview releases
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python -m preview_publish --work-dir "$WORK_DIR" release
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" release
 
       - name: Preserve finalized artifacts and notary logs
         if: always()
@@ -211,4 +313,6 @@ jobs:
 
       - name: Remove temporary Apple keychains
         if: always()
-        run: python -m preview_publish --work-dir "$WORK_DIR" cleanup
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" cleanup

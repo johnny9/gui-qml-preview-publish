@@ -65,7 +65,7 @@ def _verify_depends_patch(path: Path, expected_sha256: str) -> None:
         )
 
 
-def _verify_patched_tree(path: Path, expected_sha256: str) -> None:
+def _patched_tree_digest(path: Path) -> str:
     git = require_tool("git")
     status = subprocess.run(
         [git, "status", "--porcelain=v1", "--untracked-files=all"],
@@ -98,7 +98,11 @@ def _verify_patched_tree(path: Path, expected_sha256: str) -> None:
         check=True,
         stdout=subprocess.PIPE,
     ).stdout
-    digest = hashlib.sha256(diff).hexdigest()
+    return hashlib.sha256(diff).hexdigest()
+
+
+def _verify_patched_tree(path: Path, expected_sha256: str) -> None:
+    digest = _patched_tree_digest(path)
     if digest != expected_sha256:
         raise PublisherError(
             f"Patched tree digest for {path} is {digest}, expected {expected_sha256}. "
