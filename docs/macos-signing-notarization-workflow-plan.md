@@ -243,7 +243,8 @@ The final protected stage must:
 - The released DMG is Developer ID signed, notarization is accepted, and the
   ticket is stapled and validated.
 - The released Linux asset is the validated x86-64 depends-built executable,
-  with no signing or packaging step.
+  with no signing or packaging step. Before upload, it remains running for a
+  bounded Xvfb smoke test and produces no runtime QML disk-cache files.
 - Every successful run creates one stable SemVer `0.0.<run-number>` prerelease
   and updates the rolling Latest Preview prerelease with matching asset
   digests.

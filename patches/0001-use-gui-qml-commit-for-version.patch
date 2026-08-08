@@ -1,9 +1,15 @@
 From: gui-qml preview publisher
-Subject: [PATCH] qml: display the gui-qml build hash
+Subject: [PATCH] qml: identify preview builds and disable the QML disk cache
 
 Allow the publisher to inject the pinned gui-qml commit as the user-facing
 version. Keep Bitcoin Core's own release and P2P version behavior unchanged
 when the override is absent.
+
+Preview executables replace the QML resources at the same qrc URLs on every
+update. Do not let Qt reuse runtime-compiled QML units from an older preview;
+they can contain an incompatible type graph and crash the QML compiler before
+the window is created. Restrict this policy to builds carrying the publisher's
+GUI_QML_BUILD_VERSION marker.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 288ef25..8c169b9 100644
@@ -27,6 +33,18 @@ index 288ef25..8c169b9 100644
  if(ENABLE_TEST_AUTOMATION)
    target_compile_definitions(bitcoinqml PUBLIC ENABLE_TEST_AUTOMATION)
  endif()
+diff --git a/qml/bitcoin.cpp b/qml/bitcoin.cpp
+--- a/qml/bitcoin.cpp
++++ b/qml/bitcoin.cpp
+@@ -393,4 +393,8 @@ int QmlGuiMain(int argc, char* argv[])
+ {
++#ifdef GUI_QML_BUILD_VERSION
++    qputenv("QML_DISABLE_DISK_CACHE", "1");
++#endif
++
+ #ifdef WIN32
+     common::WinCmdLineArgs winArgs;
+     std::tie(argc, argv) = winArgs.get();
 diff --git a/qml/models/nodemodel.h b/qml/models/nodemodel.h
 index 7fdab7e..0c82bde 100644
 --- a/qml/models/nodemodel.h

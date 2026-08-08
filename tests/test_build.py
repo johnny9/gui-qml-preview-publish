@@ -1,3 +1,4 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ from preview_publish.build import (
     _missing_static_qml_plugins,
     configure_command,
     export_linux_binary,
+    smoke_test_linux,
     validate_linux_binary,
 )
 from preview_publish.config import load_manifest
@@ -114,6 +116,73 @@ class BuildCommandTest(unittest.TestCase):
             self.assertEqual(exported.read_bytes(), b"ELF preview")
             self.assertTrue(exported.stat().st_mode & 0o111)
 
+    @patch("preview_publish.build.platform.system", return_value="Linux")
+    @patch("preview_publish.build.validate_linux_binary")
+    @patch("preview_publish.build.require_tool", side_effect=lambda name: name)
+    @patch("preview_publish.build.subprocess.run")
+    def test_linux_smoke_accepts_timeout_without_runtime_qml_cache(
+        self, run_mock, _require_tool, _validate, _system
+    ) -> None:
+        run_mock.return_value = subprocess.CompletedProcess([], 124, stdout="running\n")
+        manifest = load_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            binary = layout.linux_binary(manifest)
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"ELF preview")
+
+            smoke_test_linux(layout, manifest, duration_seconds=1)
+
+        command = run_mock.call_args.args[0]
+        environment = run_mock.call_args.kwargs["env"]
+        self.assertIn("xvfb-run", command)
+        self.assertIn("-signet", command)
+        self.assertNotIn("QML_DISABLE_DISK_CACHE", environment)
+        self.assertEqual(environment["QT_QPA_PLATFORM"], "xcb")
+
+    @patch("preview_publish.build.platform.system", return_value="Linux")
+    @patch("preview_publish.build.validate_linux_binary")
+    @patch("preview_publish.build.require_tool", side_effect=lambda name: name)
+    @patch("preview_publish.build.subprocess.run")
+    def test_linux_smoke_rejects_early_exit(
+        self, run_mock, _require_tool, _validate, _system
+    ) -> None:
+        run_mock.return_value = subprocess.CompletedProcess([], 139, stdout="segfault\n")
+        manifest = load_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            binary = layout.linux_binary(manifest)
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"ELF preview")
+
+            with self.assertRaisesRegex(PublisherError, "status 139"):
+                smoke_test_linux(layout, manifest, duration_seconds=1)
+
+    @patch("preview_publish.build.platform.system", return_value="Linux")
+    @patch("preview_publish.build.validate_linux_binary")
+    @patch("preview_publish.build.require_tool", side_effect=lambda name: name)
+    @patch("preview_publish.build.subprocess.run")
+    def test_linux_smoke_rejects_runtime_qml_cache_files(
+        self, run_mock, _require_tool, _validate, _system
+    ) -> None:
+        def write_cache(_command, **kwargs):
+            cache = Path(kwargs["env"]["XDG_CACHE_HOME"])
+            cache_file = cache / "BitcoinCore" / "BitcoinCore-App-signet" / "qmlcache" / "bad.qmlc"
+            cache_file.parent.mkdir(parents=True)
+            cache_file.write_bytes(b"stale")
+            return subprocess.CompletedProcess([], 124, stdout="running\n")
+
+        run_mock.side_effect = write_cache
+        manifest = load_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            binary = layout.linux_binary(manifest)
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"ELF preview")
+
+            with self.assertRaisesRegex(PublisherError, "wrote runtime QML cache"):
+                smoke_test_linux(layout, manifest, duration_seconds=1)
+
     @patch("preview_publish.build.require_tool", side_effect=lambda name: name)
     def test_configure_matches_pr_depends_build(self, _require_tool) -> None:
         manifest = load_manifest()
@@ -125,7 +194,7 @@ class BuildCommandTest(unittest.TestCase):
         self.assertIn("-DBUILD_GUI=ON", command)
         self.assertIn("-DENABLE_WALLET=ON", command)
         self.assertIn("-DENABLE_IPC=OFF", command)
-        self.assertIn("-DGUI_QML_BUILD_VERSION=bcb89ac5f659", command)
+        self.assertIn("-DGUI_QML_BUILD_VERSION=babcfe9a292e", command)
         self.assertTrue(
             any(value.endswith("aarch64-apple-darwin24.6.0/toolchain.cmake") for value in command)
         )

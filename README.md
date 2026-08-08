@@ -64,10 +64,11 @@ Install the build tools and run the same pinned checkout and build stages:
 sudo apt-get update
 sudo apt-get install -y \
   binutils bison build-essential cmake curl make ninja-build patch pkgconf \
-  python3 xz-utils
+  python3 xauth xvfb xz-utils
 python3 -m preview_publish --work-dir build-linux checkout --clean
 python3 -m preview_publish --work-dir build-linux build
 python3 -m preview_publish --work-dir build-linux export-linux
+python3 -m preview_publish --work-dir build-linux smoke-linux
 ```
 
 The exported file is
@@ -77,6 +78,12 @@ need their executable bit restored before launch:
 ```sh
 chmod +x bitcoin-core-app-signet-x86_64-linux-gnu
 ```
+
+Publisher builds disable Qt's runtime QML disk cache before application
+startup so an updated raw executable cannot reuse incompatible bytecode from an
+older preview. The Linux smoke test launches the exported signet executable for
+15 seconds under Xvfb with isolated data, configuration, and cache directories.
+It fails if the process exits early or writes `.qmlc`/`.jsc` files.
 
 ## macOS packaging
 

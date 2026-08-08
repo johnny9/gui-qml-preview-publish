@@ -191,6 +191,8 @@ jobs:
             patch \
             pkgconf \
             python3 \
+            xauth \
+            xvfb \
             xz-utils
 
       - name: Fetch and patch exact source
@@ -217,6 +219,11 @@ jobs:
         run: >-
           python -m preview_publish --manifest "$MANIFEST"
           --work-dir "$WORK_DIR" export-linux
+
+      - name: Smoke-test Linux executable
+        run: >-
+          python -m preview_publish --manifest "$MANIFEST"
+          --work-dir "$WORK_DIR" smoke-linux
 
       - name: Upload Linux executable
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

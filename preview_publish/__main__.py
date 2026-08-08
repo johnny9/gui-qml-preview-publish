@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .archive import archive_app, extract_app_archive
-from .build import build, export_linux_binary
+from .build import build, export_linux_binary, smoke_test_linux
 from .config import load_manifest
 from .errors import PublisherError
 from .layout import Layout
@@ -48,6 +48,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "export-linux", help="validate and export the raw Linux executable"
     )
+    smoke_linux_parser = subparsers.add_parser(
+        "smoke-linux", help="launch-test the exported Linux executable under Xvfb"
+    )
+    smoke_linux_parser.add_argument("--duration", type=int, default=15)
     subparsers.add_parser("package", help="create and deploy Bitcoin-QML.app")
     subparsers.add_parser("dmg", help="create an unsigned preview DMG")
     subparsers.add_parser(
@@ -95,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
             build(layout, manifest, jobs=args.jobs)
         elif args.command == "export-linux":
             export_linux_binary(layout, manifest)
+        elif args.command == "smoke-linux":
+            smoke_test_linux(layout, manifest, duration_seconds=args.duration)
         elif args.command == "package":
             package(layout, manifest)
         elif args.command == "dmg":

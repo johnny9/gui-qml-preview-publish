@@ -16,6 +16,17 @@ from preview_publish.source import (
 
 
 class ApplyPatchTest(unittest.TestCase):
+    def test_preview_patch_disables_qml_disk_cache_before_application_start(self) -> None:
+        manifest = load_manifest()
+        patch_path = manifest.repository_path(manifest.patches[0].path)
+        patch_text = patch_path.read_text(encoding="utf-8")
+
+        disable = '+    qputenv("QML_DISABLE_DISK_CACHE", "1");'
+        application_start = " #ifdef WIN32"
+        self.assertIn("+#ifdef GUI_QML_BUILD_VERSION", patch_text)
+        self.assertIn(disable, patch_text)
+        self.assertLess(patch_text.index(disable), patch_text.index(application_start))
+
     def test_clean_requires_tool_owned_workspace_marker(self) -> None:
         manifest = load_manifest()
         with tempfile.TemporaryDirectory() as directory:

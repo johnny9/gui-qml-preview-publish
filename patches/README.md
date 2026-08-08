@@ -5,8 +5,11 @@ after the branch's own depends patch. The version patch targets gui-qml itself; 
 network-default patch targets its `bitcoin` submodule:
 
 1. `0001-use-gui-qml-commit-for-version.patch` adds a build-time override for the
-   user-facing version. The publisher supplies the exact gui-qml hash without
-   changing Bitcoin Core's P2P or release-version semantics.
+   user-facing version and disables Qt's runtime QML disk cache for those
+   preview builds. The publisher supplies the exact gui-qml hash without
+   changing Bitcoin Core's P2P or release-version semantics. Disabling the
+   cache prevents a new raw executable from loading incompatible `.qmlc`
+   files produced by an older preview at the same embedded QML URLs.
 2. `0002-default-to-signet.patch` changes only the no-network-selected fallback to
    signet. Explicit command-line and configuration network selections still win.
 

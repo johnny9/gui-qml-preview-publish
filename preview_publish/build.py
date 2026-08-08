@@ -5,6 +5,8 @@ import platform
 import re
 import shutil
 import stat
+import subprocess
+import tempfile
 from pathlib import Path
 
 from .commands import output, require_tool, run
@@ -195,6 +197,91 @@ def export_linux_binary(layout: Layout, manifest: Manifest) -> Path:
     )
     print(f"Exported Linux executable {destination}")
     return destination
+
+
+def smoke_test_linux(
+    layout: Layout, manifest: Manifest, *, duration_seconds: int = 15
+) -> None:
+    if platform.system() != "Linux":
+        raise PublisherError("The Linux executable smoke test must run on Linux")
+    if duration_seconds <= 0:
+        raise PublisherError("The Linux smoke-test duration must be positive")
+
+    binary = layout.linux_binary(manifest)
+    validate_linux_binary(binary, manifest)
+    timeout = require_tool("timeout")
+    xvfb_run = require_tool("xvfb-run")
+
+    layout.work.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="linux-smoke-", dir=layout.work) as directory:
+        smoke_root = Path(directory)
+        datadir = smoke_root / "datadir"
+        cache = smoke_root / "cache"
+        config = smoke_root / "config"
+        runtime = smoke_root / "runtime"
+        for path in (datadir, cache, config, runtime):
+            path.mkdir()
+        runtime.chmod(0o700)
+
+        environment = os.environ.copy()
+        for variable in (
+            "QML_DISABLE_DISK_CACHE",
+            "QML_DISK_CACHE",
+            "QML_DISK_CACHE_PATH",
+            "QML_FORCE_DISK_CACHE",
+        ):
+            environment.pop(variable, None)
+        environment.update(
+            {
+                "QT_QPA_PLATFORM": "xcb",
+                "XDG_CACHE_HOME": str(cache),
+                "XDG_CONFIG_HOME": str(config),
+                "XDG_RUNTIME_DIR": str(runtime),
+            }
+        )
+
+        result = subprocess.run(
+            [
+                timeout,
+                "--signal=TERM",
+                "--kill-after=5s",
+                f"{duration_seconds}s",
+                xvfb_run,
+                "--auto-servernum",
+                "--server-args=-screen 0 1024x768x24",
+                binary,
+                f"-datadir={datadir}",
+                "-signet",
+                "-listen=0",
+                "-connect=0",
+                "-dnsseed=0",
+                "-printtoconsole",
+            ],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 124:
+            output_text = result.stdout.strip()
+            details = f"\n{output_text}" if output_text else ""
+            raise PublisherError(
+                "Linux preview exited before the smoke-test timeout "
+                f"with status {result.returncode}.{details}"
+            )
+
+        cache_files = sorted((*cache.rglob("*.qmlc"), *cache.rglob("*.jsc")))
+        if cache_files:
+            relative = ", ".join(str(path.relative_to(cache)) for path in cache_files[:5])
+            raise PublisherError(
+                "Linux preview wrote runtime QML cache files despite the preview "
+                f"cache-disable policy: {relative}"
+            )
+
+    print(
+        f"Linux preview stayed running for {duration_seconds}s without writing a QML disk cache"
+    )
 
 
 def build(layout: Layout, manifest: Manifest, *, jobs: int | None = None) -> Path:
