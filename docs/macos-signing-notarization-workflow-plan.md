@@ -9,8 +9,9 @@ by itself.
 
 Use `macos-15` for every new GitHub Actions macOS job. GitHub has announced
 that macOS 14 images begin deprecation on July 6, 2026 and become unsupported
-on November 2, 2026. The release workflow began manual-only; its protected
-signing boundary is retained now that upstream polling is enabled.
+on November 2, 2026. The release workflow began manual-only; upstream polling
+and automatic signing and publishing are now enabled. The signing job remains
+isolated from the unsigned build jobs.
 
 `macos-15` is currently GitHub's arm64 M1 runner label; `macos-15-intel` is
 the separate Intel label. The pinned `qt6` source's own depends workflow uses
@@ -23,7 +24,8 @@ credential smoke test:
 
 - Notarization must use an App Store Connect API key (`.p8`).
 - The six named repository secrets below are the initial source of truth.
-- A protected `release-signing` environment is the target for release jobs.
+- The `release-signing` environment is the target for release jobs, with
+  required reviewers disabled so successful builds proceed automatically.
 - The secret-free macOS and Linux build jobs and isolated signing job remain a
   useful security boundary. Linux exports only its raw executable; the
   implementation should not introduce a second packaging system.
@@ -89,8 +91,11 @@ KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 
 The first smoke test may read the repository secrets directly and must not set
 an `environment:`. For a public repository, create `release-signing`, copy or
-move the six secrets into it, and require an approval before a job can import
-the P12, write the P8, sign, or call `notarytool`.
+move the six secrets into it, and leave **Required reviewers** disabled in the
+GitHub environment settings. The signing job starts automatically after both
+unsigned builds succeed. Environment approval rules are managed in GitHub,
+separately from the workflow YAML. The manual notarization-query workflow also
+uses this environment and proceeds without an approval step after dispatch.
 
 ## Workflow changes
 
@@ -159,7 +164,8 @@ run-number sequence; it publishes only the rolling `latest` release.
 - Use `macos-15` for the macOS build and signing jobs and `ubuntu-22.04` for
   the x86-64 Linux depends build.
 - Use `environment: release-signing` for the signing/notarization job.
-- Keep both unsigned builds and protected signing in separate jobs/runners.
+- Start signing and publishing automatically after both builds succeed.
+- Keep both unsigned builds and signing in separate jobs/runners.
 - Use `contents: read` for artifact-only execution and `contents: write` only
   when the workflow creates the versioned release and updates Latest Preview.
 - Never run a secrets-bearing job on `pull_request` or
@@ -178,7 +184,7 @@ against the actual depends build before changing it: the current pinned build
 targets macOS 14.0, whereas the proposed `11.0` only applies if all real
 dependencies support it.
 
-The final protected stage must:
+The final signing and publishing stage must:
 
 1. Download the verified unsigned application and validated raw Linux
    executable from the two secret-free jobs.
@@ -239,7 +245,7 @@ The final protected stage must:
 
 - A manual smoke test proves that all six secrets decode and the requested
   Developer ID identity imports successfully.
-- The protected release job has no Apple ID/app-specific-password dependency.
+- The release job has no Apple ID/app-specific-password dependency.
 - The released DMG is Developer ID signed, notarization is accepted, and the
   ticket is stapled and validated.
 - The released Linux asset is the validated x86-64 depends-built executable,
@@ -256,7 +262,7 @@ The final protected stage must:
 
 ## Operator checklist
 
-Before running the protected workflow, confirm the local export and backup of
+Before running the release workflow, confirm the local export and backup of
 `DeveloperIDApplication.p12`, `AuthKey_<key-id>.p8`, and the credential
 handoff notes. Confirm the precise signing label with:
 

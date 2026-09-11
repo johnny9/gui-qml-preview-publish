@@ -115,9 +115,12 @@ retain its `.p8` privately; it authorizes `notarytool` without an Apple ID or
 app-specific password in CI.
 
 For the initial smoke test, the six secrets may remain repository secrets.
-Create a protected GitHub environment named `release-signing`, copy or move
-the same six secrets into it, and require approval before enabling the release
-workflow. Only the release job references that environment.
+Create a GitHub environment named `release-signing` and copy or move the same
+six secrets into it. Leave **Required reviewers** disabled in the environment
+settings so signing and publishing proceed automatically after both builds
+succeed. This approval setting is managed in GitHub, separately from the
+workflow YAML. The release and notarization-query jobs reference that
+environment.
 
 Encode credential files without printing their contents:
 
@@ -170,7 +173,8 @@ skips both builds when that commit is already published.
 2. Secret-free `macos-15` and `ubuntu-22.04` jobs build the same pinned,
    patched source with depends. The macOS job uploads the validated unsigned
    app; the Linux job validates and uploads only the raw x86-64 executable.
-3. A fresh `macos-15` job in `release-signing` downloads both outputs, applies a
+3. After both builds succeed, a fresh `macos-15` job in `release-signing` starts
+   automatically without manual approval. It downloads both outputs, applies a
    timestamped Developer ID signature with hardened runtime, creates and
    signs the DMG, submits it to `notarytool` with the API key, reports the
    submission ID, waits for acceptance, staples it, and performs
@@ -203,10 +207,10 @@ gh workflow run query-macos-notarization.yml \
   -f submission_id=9de58f49-f5e7-4649-80d3-d3e9c9ba050b
 ```
 
-After `release-signing` approval, the workflow prints the current status and
-uploads the JSON response. For a completed submission, it also retrieves and
-uploads Apple's notarization log. It uses only the three API-key secrets and
-never uploads the decoded private key.
+The workflow uses `release-signing` without a manual approval step, prints the
+current status, and uploads the JSON response. For a completed submission, it
+also retrieves and uploads Apple's notarization log. It uses only the three
+API-key secrets and never uploads the decoded private key.
 
 Once a timed-out submission becomes `Accepted`, recover its matching signed
 DMG with `staple-macos-notarization.yml`. Provide the failed workflow run ID
@@ -223,7 +227,7 @@ verifies the source and stapled images, performs the Gatekeeper-style check,
 and uploads a `stapled-macos-dmg-<run-id>` artifact containing only the
 finalized DMG and its post-staple `SHA256SUMS`.
 
-The protected job has `contents: write`; both build jobs have only
+The signing and publishing job has `contents: write`; both build jobs have only
 `contents: read`. Neither workflow is triggered by `pull_request` or
 `pull_request_target`. The scheduled preparation job also has only
 `contents: read`; it fails closed if the branch moves during preparation or a
