@@ -10,7 +10,9 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -505,9 +507,44 @@ def _download_notary_log(
     return valid
 
 
+def _run_stapler(action: str, dmg: Path) -> None:
+    command = [require_tool("xcrun"), "stapler", action, dmg]
+    retry_delays = (5, 15, 30)
+    for attempt in range(len(retry_delays) + 1):
+        result = run(command, capture=True, check=False)
+        if result.stdout:
+            print(result.stdout, end="", flush=True)
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr, flush=True)
+        if result.returncode == 0:
+            return
+
+        # Error 68 alone can indicate a missing ticket. Retry only explicit
+        # connection loss or timeout errors from Apple's ticket lookup.
+        network_error = re.search(
+            r"\bNSURLErrorDomain\s+Code=-(?:1001|1005)\b",
+            f"{result.stdout or ''}\n{result.stderr or ''}",
+        )
+        if (
+            result.returncode != 68
+            or network_error is None
+            or attempt == len(retry_delays)
+        ):
+            raise PublisherError(
+                f"stapler {action} failed with exit code {result.returncode} "
+                f"after {attempt + 1} attempt(s)"
+            )
+        delay = retry_delays[attempt]
+        print(
+            f"Apple ticket lookup failed during stapler {action}; "
+            f"retrying in {delay}s (attempt {attempt + 2}/{len(retry_delays) + 1})",
+            flush=True,
+        )
+        time.sleep(delay)
+
+
 def verify_finalized_dmg(dmg: Path) -> None:
-    xcrun = require_tool("xcrun")
-    run([xcrun, "stapler", "validate", dmg])
+    _run_stapler("validate", dmg)
     run([require_tool("codesign"), "--verify", "--verbose=4", dmg])
     run([require_tool("hdiutil"), "verify", dmg])
     run(
@@ -525,7 +562,7 @@ def verify_finalized_dmg(dmg: Path) -> None:
 
 
 def staple_and_verify(dmg: Path) -> None:
-    run([require_tool("xcrun"), "stapler", "staple", dmg])
+    _run_stapler("staple", dmg)
     verify_finalized_dmg(dmg)
 
 

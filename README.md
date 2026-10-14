@@ -235,3 +235,12 @@ local distribution patch no longer applies. Keep GitHub release immutability
 off for the rolling `latest` release. The per-build `v0.0.<run-number>`
 releases are safe to make immutable because their tags and assets are never
 replaced.
+
+Apple's ticket lookup can drop a connection even after notarization is accepted
+and stapling succeeds. The publisher retries `stapler staple` and
+`stapler validate` when exit code 68 includes an `NSURLErrorDomain` timeout
+(-1001) or lost connection (-1005). It makes at most four attempts, waiting 5,
+15, and 30 seconds between retries, and preserves each attempt's diagnostics.
+Missing or revoked tickets, certificate errors, and other validation failures
+still stop publishing immediately. Exhausted network retries also stop
+publishing; a successful notarization submission does not bypass final checks.

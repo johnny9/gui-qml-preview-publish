@@ -1,5 +1,6 @@
 import hashlib
 import os
+import subprocess
 import tempfile
 import unittest
 import urllib.parse
@@ -611,6 +612,30 @@ class ReleaseTest(unittest.TestCase):
             ), patch("preview_publish.release.GitHubClient") as client_class:
                 with self.assertRaises(PublisherError):
                     publish_latest(layout, manifest)
+
+        client_class.assert_not_called()
+
+    def test_ticket_lookup_outage_makes_no_api_calls(self) -> None:
+        manifest = load_manifest()
+        environment = {
+            "GITHUB_TOKEN": "token",
+            "GITHUB_REPOSITORY": "owner/repository",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_RUN_NUMBER": "163",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            layout = Layout.create(Path(directory), manifest)
+            write_release_assets(layout, manifest, b"notarized")
+            with patch.dict(os.environ, environment, clear=False), patch(
+                "preview_publish.signing.require_tool", return_value="xcrun"
+            ), patch("preview_publish.signing.time.sleep"), patch(
+                "preview_publish.signing.run",
+                return_value=subprocess.CompletedProcess(
+                    [], 68, stdout="Error Domain=NSURLErrorDomain Code=-1005", stderr=""
+                ),
+            ), patch("preview_publish.release.GitHubClient") as client_class:
+                with self.assertRaisesRegex(PublisherError, "after 4 attempt"):
+                    publish_releases(layout, manifest)
 
         client_class.assert_not_called()
 

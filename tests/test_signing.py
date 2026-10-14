@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from preview_publish.config import load_manifest
 from preview_publish.errors import PublisherError
@@ -19,6 +19,8 @@ from preview_publish.signing import (
     cleanup_temporary_keychains,
     finalize,
     notarize_dmg,
+    staple_and_verify,
+    verify_finalized_dmg,
 )
 
 
@@ -408,6 +410,108 @@ class SigningTest(unittest.TestCase):
                 ).read_text(encoding="utf-8"),
                 "wait timed out",
             )
+
+
+class StaplerRetryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.run = self.enterContext(patch("preview_publish.signing.run"))
+        self.sleep = self.enterContext(patch("preview_publish.signing.time.sleep"))
+        self.enterContext(patch(
+            "preview_publish.signing.require_tool", side_effect=lambda name: name
+        ))
+        self.dmg = Path("preview.dmg")
+        self.success = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        self.connection_lost = (
+            'error is Error Domain=NSURLErrorDomain Code=-1005 '
+            '"The network connection was lost."\n'
+            "CloudKit's response is inconsistent with expections: (null)\n"
+            "The validate action failed! Error 68.\n"
+        )
+
+    def test_validation_retries_network_errors_and_keeps_all_checks(self) -> None:
+        for code in (-1001, -1005):
+            for stream in ("stdout", "stderr"):
+                with self.subTest(code=code, stream=stream):
+                    self.run.reset_mock()
+                    self.sleep.reset_mock()
+                    diagnostics = {"stdout": "", "stderr": ""}
+                    diagnostics[stream] = self.connection_lost.replace("-1005", str(code))
+                    self.run.side_effect = [
+                        subprocess.CompletedProcess([], 68, **diagnostics),
+                        *([self.success] * 4),
+                    ]
+
+                    verify_finalized_dmg(self.dmg)
+
+                    commands = [item.args[0] for item in self.run.call_args_list]
+                    self.assertEqual(commands[:2], [
+                        ["xcrun", "stapler", "validate", self.dmg],
+                        ["xcrun", "stapler", "validate", self.dmg],
+                    ])
+                    self.assertEqual([command[0] for command in commands[2:]],
+                                     ["codesign", "hdiutil", "spctl"])
+                    self.sleep.assert_called_once_with(5)
+
+    def test_stapling_retries_before_validation(self) -> None:
+        self.run.side_effect = [
+            subprocess.CompletedProcess([], 68, stdout=self.connection_lost, stderr=""),
+            *([self.success] * 5),
+        ]
+
+        staple_and_verify(self.dmg)
+
+        self.assertEqual(
+            [item.args[0][1:3] for item in self.run.call_args_list[:3]],
+            [["stapler", "staple"], ["stapler", "staple"], ["stapler", "validate"]],
+        )
+        self.sleep.assert_called_once_with(5)
+
+    def test_persistent_network_failure_stops_after_four_attempts(self) -> None:
+        self.run.return_value = subprocess.CompletedProcess(
+            [], 68, stdout=self.connection_lost, stderr=""
+        )
+
+        with self.assertRaisesRegex(PublisherError, "exit code 68 after 4 attempt"):
+            verify_finalized_dmg(self.dmg)
+
+        self.assertEqual(self.run.call_count, 4)
+        self.assertEqual(self.sleep.call_args_list, [call(5), call(15), call(30)])
+        self.assertTrue(all(
+            item.args[0][1:3] == ["stapler", "validate"]
+            for item in self.run.call_args_list
+        ))
+
+    def test_ticket_certificate_and_unknown_errors_are_not_retried(self) -> None:
+        cases = (
+            (68, "CloudKit query for ticket failed: Record not found"),
+            (65, "Could not validate ticket"),
+            (77, "The ticket has been revoked"),
+            (68, "Error Domain=NSURLErrorDomain Code=-1200"),
+            (68, "Error Domain=OtherDomain Code=-1005"),
+            (65, self.connection_lost),
+        )
+        for exit_code, diagnostic in cases:
+            with self.subTest(exit_code=exit_code, diagnostic=diagnostic):
+                self.run.reset_mock()
+                self.sleep.reset_mock()
+                self.run.return_value = subprocess.CompletedProcess(
+                    [], exit_code, stdout=diagnostic, stderr=""
+                )
+
+                with self.assertRaises(PublisherError):
+                    verify_finalized_dmg(self.dmg)
+
+                self.run.assert_called_once()
+                self.sleep.assert_not_called()
+
+    def test_codesign_failure_is_not_retried(self) -> None:
+        self.run.side_effect = [self.success, PublisherError("invalid signature")]
+
+        with self.assertRaisesRegex(PublisherError, "invalid signature"):
+            verify_finalized_dmg(self.dmg)
+
+        self.assertEqual(self.run.call_count, 2)
+        self.sleep.assert_not_called()
 
 
 if __name__ == "__main__":

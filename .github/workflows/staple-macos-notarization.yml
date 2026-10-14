@@ -30,6 +30,19 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout publisher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Test publisher
+        run: python -m unittest discover -v
+
       - name: Download signed DMG from failed run
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -53,12 +66,13 @@ jobs:
 
           mkdir -p "$final_dir"
           cp "$source_dmg" "$final_dmg"
-          xcrun stapler staple "$final_dmg"
-          xcrun stapler validate "$final_dmg"
-          codesign --verify --verbose=4 "$final_dmg"
-          hdiutil verify "$final_dmg"
-          spctl --assess --type open --context context:primary-signature \
-            --verbose=4 "$final_dmg"
+          python - "$final_dmg" <<'PY'
+          import sys
+          from pathlib import Path
+          from preview_publish.signing import staple_and_verify
+
+          staple_and_verify(Path(sys.argv[1]))
+          PY
 
           final_hash="$(shasum -a 256 "$final_dmg" | awk '{print $1}')"
           printf '%s  %s\n' "$final_hash" "$(basename "$final_dmg")" \
