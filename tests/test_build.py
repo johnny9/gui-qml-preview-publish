@@ -194,7 +194,7 @@ class BuildCommandTest(unittest.TestCase):
         self.assertIn("-DBUILD_GUI=ON", command)
         self.assertIn("-DENABLE_WALLET=ON", command)
         self.assertIn("-DENABLE_IPC=OFF", command)
-        self.assertIn("-DGUI_QML_BUILD_VERSION=babcfe9a292e", command)
+        self.assertIn("-DGUI_QML_BUILD_VERSION=d567e3eb2497", command)
         self.assertTrue(
             any(value.endswith("aarch64-apple-darwin24.6.0/toolchain.cmake") for value in command)
         )
