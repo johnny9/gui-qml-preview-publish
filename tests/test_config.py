@@ -9,7 +9,7 @@ class ManifestTest(unittest.TestCase):
 
         self.assertEqual(
             manifest.source.commit,
-            "babcfe9a292ef15cce086f326be57b9a2c91cc27",
+            "b845da45c28f3534bf9043d485efc47d584d0501",
         )
         self.assertEqual(
             manifest.source.bitcoin_commit,
@@ -30,15 +30,15 @@ class ManifestTest(unittest.TestCase):
         )
         self.assertEqual(
             manifest.source.depends_patch_sha256,
-            "19e3ba90f0d1d41978e99ff1da5fa0a737f3a715bd6d94be03cea423934bf8dc",
+            "4a82165a9cebfa0ec500c3abb6b2294b4bfe6edf34ab76003f06a7acba4646b9",
         )
         self.assertEqual(
             manifest.source.patched_source_diff_sha256,
-            "696ba9ab6bf2d3158c26fe75a791a84d2aba59ecf07fca2dc0bfeb116f4c6128",
+            "acefdb02acfd7a41a3dc94159bf0ff8eea7578790fb99e3e8d8fba0d988b7e31",
         )
         self.assertEqual(
             manifest.source.patched_bitcoin_diff_sha256,
-            "a0b33e1a97a283f76932e170a4fb0d424b905aee26b72ffe06ba3baede96a217",
+            "3e2c30d7bacae07f7420980b1c757a1ce7347d817819e35872129bf0c56bf39a",
         )
         self.assertEqual(manifest.build.display_version, manifest.source.commit[:12])
         self.assertEqual(manifest.linux.host, "x86_64-pc-linux-gnu")
