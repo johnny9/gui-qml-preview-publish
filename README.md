@@ -85,6 +85,11 @@ older preview. The Linux smoke test launches the exported signet executable for
 15 seconds under Xvfb with isolated data, configuration, and cache directories.
 It fails if the process exits early or writes `.qmlc`/`.jsc` files.
 
+Both platforms validate that the executable embeds the required static QML
+plugins. Settings may be provided by the legacy `QmlSettingsPlugin` or by
+`QtQmlCorePlugin` in Qt 6.5 and newer. Validation rejects executables with
+neither settings plugin.
+
 ## macOS packaging
 
 Bitcoin Core's `macdeployqtplus` is vendored under

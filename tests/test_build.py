@@ -12,6 +12,7 @@ from preview_publish.build import (
     configure_command,
     export_linux_binary,
     smoke_test_linux,
+    validate_binary,
     validate_linux_binary,
 )
 from preview_publish.config import load_manifest
@@ -30,7 +31,8 @@ class BuildCommandTest(unittest.TestCase):
 
     def test_detects_missing_static_qml_plugins(self) -> None:
         all_symbols = "\n".join(
-            f"qt_plugin_instance_{plugin}" for plugin in STATIC_QML_PLUGIN_CLASSES
+            f"qt_plugin_instance_{plugin}"
+            for plugin in (*STATIC_QML_PLUGIN_CLASSES, "QmlSettingsPlugin")
         )
         self.assertEqual(_missing_static_qml_plugins(all_symbols), ())
         self.assertEqual(
@@ -38,9 +40,70 @@ class BuildCommandTest(unittest.TestCase):
             (
                 "QtQuickControls2Plugin",
                 "QtQuickLayoutsPlugin",
-                "QmlSettingsPlugin",
+                "QmlSettingsPlugin or QtQmlCorePlugin",
             ),
         )
+
+    @patch("preview_publish.build.require_tool", side_effect=lambda name: name)
+    @patch("preview_publish.build.output")
+    def test_binary_validation_checks_settings_plugins(
+        self, output_mock, _require_tool
+    ) -> None:
+        manifest = load_manifest()
+        cases = (
+            (
+                validate_binary,
+                "QCocoaIntegrationPlugin",
+                [
+                    "arm64\n",
+                    "/tmp/app:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n",
+                    "    minos 14.0\n",
+                ],
+            ),
+            (
+                validate_linux_binary,
+                "QXcbIntegrationPlugin",
+                [
+                    "Class: ELF64\nMachine: Advanced Micro Devices X86-64\n",
+                    "(NEEDED) Shared library: [libc.so.6]\n",
+                ],
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "bitcoin-core-app"
+            binary.write_bytes(
+                b"default: signet " + manifest.build.display_version.encode("ascii")
+            )
+            for validator, platform_plugin, platform_outputs in cases:
+                for settings_plugins in (
+                    ("QmlSettingsPlugin",),
+                    ("QtQmlCorePlugin",),
+                    ("QmlSettingsPlugin", "QtQmlCorePlugin"),
+                    (),
+                ):
+                    with self.subTest(
+                        platform=platform_plugin, settings=settings_plugins
+                    ):
+                        plugins = (
+                            "QtQuick2Plugin",
+                            "QtQuickControls2Plugin",
+                            "QtQuickLayoutsPlugin",
+                            platform_plugin,
+                            *settings_plugins,
+                        )
+                        output_mock.side_effect = [
+                            *platform_outputs,
+                            "\n".join(
+                                f"qt_plugin_instance_{plugin}" for plugin in plugins
+                            ),
+                        ]
+                        if settings_plugins:
+                            validator(binary, manifest)
+                        else:
+                            with self.assertRaisesRegex(
+                                PublisherError, "QmlSettingsPlugin or QtQmlCorePlugin"
+                            ):
+                                validator(binary, manifest)
 
     def test_extracts_linux_dynamic_dependencies(self) -> None:
         dynamic_section = """
@@ -76,7 +139,11 @@ class BuildCommandTest(unittest.TestCase):
         self, output_mock, _require_tool
     ) -> None:
         manifest = load_manifest()
-        plugins = (*STATIC_QML_PLUGIN_CLASSES, "QXcbIntegrationPlugin")
+        plugins = (
+            *STATIC_QML_PLUGIN_CLASSES,
+            "QmlSettingsPlugin",
+            "QXcbIntegrationPlugin",
+        )
         output_mock.side_effect = [
             "Class: ELF64\nMachine: Advanced Micro Devices X86-64\n",
             "\n".join(

@@ -18,7 +18,6 @@ STATIC_QML_PLUGIN_CLASSES = (
     "QtQuick2Plugin",
     "QtQuickControls2Plugin",
     "QtQuickLayoutsPlugin",
-    "QmlSettingsPlugin",
 )
 
 # Bitcoin Core's Linux depends recipes deliberately build fontconfig and
@@ -88,11 +87,19 @@ def _contains_display_version(binary: Path, version: str) -> bool:
 
 
 def _missing_static_qml_plugins(symbols: str) -> tuple[str, ...]:
-    return tuple(
+    missing = tuple(
         plugin
         for plugin in STATIC_QML_PLUGIN_CLASSES
         if f"qt_plugin_instance_{plugin}" not in symbols
     )
+    # Qt 6.5 moved Settings from Qt.labs.settings to QtCore. Newer source
+    # excludes the legacy plugin to avoid duplicate QQmlSettings symbols.
+    if not any(
+        f"qt_plugin_instance_{plugin}" in symbols
+        for plugin in ("QmlSettingsPlugin", "QtQmlCorePlugin")
+    ):
+        missing = (*missing, "QmlSettingsPlugin or QtQmlCorePlugin")
+    return missing
 
 
 def _validate_embedded_preview(
